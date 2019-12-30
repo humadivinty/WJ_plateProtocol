@@ -1,0 +1,16 @@
+LIBRARY  
+EXPORTS
+
+WVS_Settime
+WVS_Initialize
+WVS_CloseHv
+WVS_GetBigImage
+WVS_GetFarBigImage
+WVS_GetSmallImage
+WVS_GetPlateNo
+WVS_ForceSendLaneHv
+WVS_StartRealPlay
+WVS_StopRealPlay
+WVS_Startrecord
+WVS_Stoprecord
+WVS_GetHvIsConnected
