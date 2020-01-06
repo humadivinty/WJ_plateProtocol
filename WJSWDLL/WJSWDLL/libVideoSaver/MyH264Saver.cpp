@@ -107,7 +107,7 @@ bool MyH264Saver::addDataStruct(CustH264Struct* pDataStruct)
     //OutputDebugString(buf);
 
     std::shared_ptr<CustH264Struct> pData = std::shared_ptr<CustH264Struct>(pDataStruct);
-    if (GetProcessMode() == 0)
+    if (GetProcessMode() == 1)
     {
         EnterCriticalSection(&m_DataListLocker);
         if (m_lDataStructList.size() > VIDEO_FRAME_LIST_SIZE)
