@@ -119,6 +119,8 @@ typedef struct _BasicInfo
     char szUBLVersion[128];//UBL版本，仅适用于PCC200、PCC600
 }BasicInfo;
 
+
+
 class BaseCamera
 {
 public:
@@ -227,6 +229,10 @@ public :
     void setVideoDelayTime(int iTime);
     int getVideoDelayTime();
 
+
+    bool FindIfCarIDInTheList(unsigned long carID);
+    void InsertCarIDToTheList(unsigned long carID);
+
 private:
     void setAviFilePath(const char* chPath);
     char* getAviPath();
@@ -247,6 +253,7 @@ protected:
 	int m_iCurrentH264FrameIndex;
     int m_iVideoAdvanceTime;
     int m_iVideoDelayTime;
+    int m_iVideoMode;
 
     int m_iLogHoldDay;
     int m_iResultHoldDay;
@@ -282,6 +289,9 @@ protected:
 
     HANDLE m_hPlayFirstH264;
     HANDLE m_hPlaySecondh264;
+
+    std::list<std::string> m_lsFinishVideoName;
+    std::list<unsigned long> m_lsSentCarID;
 
     void* m_hFirstWinHandle;
     void* m_hSecondWinHandle;
@@ -488,6 +498,14 @@ public:
         DWORD dwVideoDataLen,
         LPCSTR szVideoExtInfo
         );
+
+    static void s_ReceiveFileString(void*Userdata, const char* fileName)
+    {
+        BaseCamera* pThis = (BaseCamera*)Userdata;
+        pThis->receiveFileName(fileName);
+    };
+    void receiveFileName(const char* fileName);
+    bool FindIfFileNameInReciveList(const char* fileName);
 };
 
 #endif

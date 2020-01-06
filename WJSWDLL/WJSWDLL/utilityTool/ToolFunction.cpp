@@ -2296,6 +2296,8 @@ void Tool_LoadCamerInfoFromINI(const char* IniFileName, std::list<CameraInfo>& i
 
         Tool_ReadIntValueFromConfigFile(IniFileName, chNodeName, "VideoChannelID", info.iVideoChannelID);
 
+        Tool_ReadIntValueFromConfigFile(IniFileName, chNodeName, "Type", info.iDeviceType);
+
         Tool_ReadKeyValueFromConfigFile(IniFileName, chNodeName, "IP", chNodeValue, sizeof(chNodeValue));
         if (Tool_checkIP(chNodeValue))
         {
@@ -2308,6 +2310,8 @@ void Tool_LoadCamerInfoFromINI(const char* IniFileName, std::list<CameraInfo>& i
         {
             Tool_WriteFormatLog("get camera info %d , ip = %s, laneID = %d, is invalid , do not add to the list", i + 1, chNodeValue, i + 1);
         }
+
+
     }
 }
 

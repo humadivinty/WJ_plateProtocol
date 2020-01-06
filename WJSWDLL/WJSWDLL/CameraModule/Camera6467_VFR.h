@@ -5,6 +5,7 @@
 #include "CameraModule/Camera6467_plate.h"
 #include "SendStatues_def.h"
 #include "utilityTool/CCusSemaohore.h"
+#include "ResultSentStatusManager.h"
 
 class Camera6467_VFR :
     public BaseCamera
@@ -64,6 +65,8 @@ public:
     std::shared_ptr<CameraResult> GetFrontResultByPlateNo(const char* plateNo);
     std::shared_ptr<CameraResult> GetFrontResultByPosition(int position);
     std::shared_ptr<CameraResult> GetLastResult();
+    std::shared_ptr<CameraResult> GetResultByCarID(unsigned long  dwCarID);
+
     bool GetLastResultIfReceiveComplete();
     void SetLastResultIfReceiveComplete(bool bValue);
 
@@ -119,7 +122,9 @@ public:
 
 public:
     bool checkIfHasThreePic(std::shared_ptr<CameraResult> result);
-    DWORD getResultWaitTime();
+    int getResultWaitTime();
+    void SetResultWaitTime(int iValue);
+
     unsigned int SendResultThreadFunc();
     static unsigned int WINAPI s_SendResultThreadFunc(void* parameter)
     {
@@ -170,10 +175,13 @@ public:
     }
     unsigned int DeleteResultThreadFunc();
 
-    void SetResultSendSignal(int iSignalID, int iSendStatus);
-    SendStatues getFrontSendSignal();
-    void deleteFrontSendSignal();
-    int GetSignalListSize();
+    void UpdateSentStatus(CameraResult* pResult);
+
+    bool GetIfSendResult();
+    void SetIfSendResult(bool bValue);
+
+    bool GetFrontSendStatus(ResultSentStatus& status);
+    void UpdateSendStatus(int loginId, unsigned long dwCarID, int iTem, long value);
 
     int GetResultMode();
 private:
@@ -198,6 +206,7 @@ private:
     bool m_bStatusCheckThreadExit;
     bool m_bJpegComplete;
     bool m_bLastResultComplete;
+    bool m_bSentResult;
 
     HANDLE m_hStatusCheckThread;			//状态检测线程
     HANDLE m_hSendResultThread;			//结果发送线程
@@ -213,10 +222,12 @@ private:
 
     CameraResult* m_pResult;
     ResultListManager m_VfrResultList;
-    std::list<SendStatues> StatusList;
     std::list<std::string> m_lsVideoName;
+    std::list<ResultSentStatus> m_lsResultSentStatusList;
 
     std::shared_ptr<CameraResult> m_pLastResult;
-    CCusSemaphore m_MySemaphore;
+    //CCusSemaphore m_MySemaphore;
+
+    ResultSentStatusManager m_lsStatusList;
 };
 

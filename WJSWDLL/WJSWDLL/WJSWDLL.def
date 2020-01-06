@@ -14,3 +14,4 @@ WVS_StopRealPlay
 WVS_Startrecord
 WVS_Stoprecord
 WVS_GetHvIsConnected
+WVS_Getrecord

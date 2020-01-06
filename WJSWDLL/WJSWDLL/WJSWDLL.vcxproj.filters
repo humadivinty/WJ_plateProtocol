@@ -93,6 +93,9 @@
     <ClInclude Include="resource.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="ResultSentStattusManager.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -154,6 +157,9 @@
     </ClCompile>
     <ClCompile Include="utilityTool\log4z.cpp">
       <Filter>utilityTool</Filter>
+    </ClCompile>
+    <ClCompile Include="ResultSentStatusManager.cpp">
+      <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

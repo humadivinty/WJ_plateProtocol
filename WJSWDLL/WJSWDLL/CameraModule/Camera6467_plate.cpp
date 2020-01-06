@@ -46,9 +46,11 @@ m_hStatusCheckThread(NULL),
 m_pSideCamera(NULL),
 m_pTailCamera(NULL)
 {
+    InitializeCriticalSection(&m_csResult);
     memset(m_chResultPath, '\0', sizeof(m_chResultPath));
     ReadConfig();
-    InitializeCriticalSection(&m_csResult);
+    
+    m_h264Saver.initMode(0);
 
     m_hStatusCheckThread = (HANDLE)_beginthreadex(NULL, 0, Camera_StatusCheckThread, this, 0, NULL);
 }
@@ -76,10 +78,11 @@ m_hStatusCheckThread(NULL),
   m_pSideCamera(NULL),
   m_pTailCamera(NULL)
 {
+    InitializeCriticalSection(&m_csResult);
     memset(m_chResultPath, '\0', sizeof(m_chResultPath));
     ReadConfig();
 
-    InitializeCriticalSection(&m_csResult);
+    m_h264Saver.initMode(1);
 
     m_hStatusCheckThread = (HANDLE)_beginthreadex(NULL, 0, Camera_StatusCheckThread, this, 0, NULL);
 }
@@ -417,7 +420,7 @@ int Camera6467_plate::RecordInfoEnd(DWORD dwCarID)
 
     SetResultComplete(true);
 
-    NotifyResultReady(dwCarID);
+    //NotifyResultReady(dwCarID);
     if(m_hWnd != NULL)
     {
         WriteFormatLog("PostMessage winWnd = %p, msg = %d, laneID = %d", m_hWnd, m_iMsg, GetLoginID());

@@ -8,6 +8,8 @@
 #include "afxdialogex.h"
 #include <direct.h>
 #include <string>
+#include "ToolFunction_simple.h"
+
 
 #include "../WJSWDLL/WJSWDLL.h"
 #ifdef DEBUG
@@ -21,6 +23,8 @@
 #include <Shlwapi.h>
 #pragma comment(lib, "Shlwapi.lib")
 
+#define RESULT_DIR "\\ResultBuffer\\"
+
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
@@ -28,6 +32,10 @@
 static int g_MsgPLATENO = ::RegisterWindowMessage("PLATENO");
 
 #define MAX_IMG_BUF_SIZE (10*1024*1024)
+
+#define CAMERA_TYPE_PLATE 0
+#define CAMERA_TYPE_VFR 1
+
 // 用于应用程序“关于”菜单项的 CAboutDlg 对话框
 
 class CAboutDlg : public CDialogEx
@@ -92,6 +100,7 @@ BEGIN_MESSAGE_MAP(CTestTool_WJSWDLLDlg, CDialogEx)
     ON_BN_CLICKED(IDC_BUTTON_WVS_Startrecord, &CTestTool_WJSWDLLDlg::OnBnClickedButtonWvsStartrecord)
     ON_BN_CLICKED(IDC_BUTTON_WVS_Stoprecord, &CTestTool_WJSWDLLDlg::OnBnClickedButtonWvsStoprecord)
     ON_BN_CLICKED(IDC_BUTTON_WVS_GetHvIsConnected, &CTestTool_WJSWDLLDlg::OnBnClickedButtonWvsGethvisconnected)
+    ON_BN_CLICKED(IDC_BUTTON_WVS_Getrecord, &CTestTool_WJSWDLLDlg::OnBnClickedButtonWvsGetrecord)
 END_MESSAGE_MAP()
 
 
@@ -132,6 +141,11 @@ BOOL CTestTool_WJSWDLLDlg::OnInitDialog()
     
     CString str;
     str.Format("msg = %d", g_MsgPLATENO);
+    ShowMessage(str);
+
+    str = "";
+    Tool_ReadIntValueFromConfigFile(INI_FILE_NAME, "CameraMode", "type", m_iCameraMode);
+    str.Format("read from %s, camera mode = %d ( %s )", INI_FILE_NAME,  m_iCameraMode, m_iCameraMode == 0 ? "CAMERA_TYPE_PLATE" : "CAMERA_TYPE_VFR");
     ShowMessage(str);
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
@@ -192,8 +206,40 @@ LRESULT CTestTool_WJSWDLLDlg::OnUpdatePlateData(WPARAM wParam, LPARAM lParam)
 {
     int iLaneID = (int)wParam;
     CString strLog;
-    strLog.Format("receive msg from iLaneID = %d", iLaneID);
+    strLog.Format("receive msg from MsgType = %d", iLaneID);
     ShowMessage(strLog);
+
+    switch (m_iCameraMode)
+    {
+    case CAMERA_TYPE_PLATE:
+        break;
+
+    case CAMERA_TYPE_VFR:
+        strLog = "";
+        strLog.Format("%d", iLaneID);
+        GetDlgItem(IDC_EDIT_LANEID)->SetWindowText(strLog);
+        if (1 == iLaneID)
+        {
+            OnBnClickedButtonWvsGetbigimage();
+            OnBnClickedButtonWvsGetplateno();
+            OnBnClickedButtonWvsGetsmallimage();
+        }
+        else if (2 == iLaneID)
+        {
+            OnBnClickedButtonWvsGetbigimage();
+        }
+        else if (3 == iLaneID)
+        {
+            OnBnClickedButtonWvsGetbigimage();
+        }
+        else if (4 == iLaneID)
+        {
+            OnBnClickedButtonWvsGetrecord();
+        }
+        break;
+    default:
+        break;
+    }
 
     return 0;
 }
@@ -310,7 +356,7 @@ void CTestTool_WJSWDLLDlg::OnBnClickedButtonWvsGetbigimage()
         && iImageBufSize > 0)
     {
         char chFileName[256] = {0};
-        sprintf_s(chFileName, sizeof(chFileName), "%s\\result\\%d-%lu_big.jpg", m_chCurrentDir, iLaneID, GetTickCount());
+        sprintf_s(chFileName, sizeof(chFileName), "%s%s%d-%lu_big.jpg", m_chCurrentDir, RESULT_DIR, iLaneID, GetTickCount());
         Tool_SaveFile(chFileName, m_pImgBuffer, iImageBufSize);
     }
 
@@ -346,7 +392,7 @@ void CTestTool_WJSWDLLDlg::OnBnClickedButtonWvsGetfarbigimage()
         && iImageBufSize > 0)
     {
         char chFileName[256] = { 0 };
-        sprintf_s(chFileName, sizeof(chFileName), "%s\\result\\%d-%lu_far_big.jpg", m_chCurrentDir, iLaneID, GetTickCount());
+        sprintf_s(chFileName, sizeof(chFileName), "%s%s%d-%lu_far_big.jpg", m_chCurrentDir, RESULT_DIR, iLaneID, GetTickCount());
         Tool_SaveFile(chFileName, m_pImgBuffer, iImageBufSize);
     }
 
@@ -382,7 +428,7 @@ void CTestTool_WJSWDLLDlg::OnBnClickedButtonWvsGetsmallimage()
         && iImageBufSize > 0)
     {
         char chFileName[256] = { 0 };
-        sprintf_s(chFileName, sizeof(chFileName), "%s\\result\\%d-%lu_small.jpg", m_chCurrentDir, iLaneID, GetTickCount());
+        sprintf_s(chFileName, sizeof(chFileName), "%s%s%d-%lu_small.jpg", m_chCurrentDir, RESULT_DIR, iLaneID, GetTickCount());
         Tool_SaveFile(chFileName, m_pImgBuffer, iImageBufSize);
     }
 
@@ -406,7 +452,7 @@ void CTestTool_WJSWDLLDlg::OnBnClickedButtonWvsGetplateno()
     if (0 == iRet)
     {
         char chFileName[256] = { 0 };
-        sprintf_s(chFileName, sizeof(chFileName), "%s\\result\\%d-%lu_plate.txt", m_chCurrentDir, iLaneID, GetTickCount());
+        sprintf_s(chFileName, sizeof(chFileName), "%s%s%d-%lu_plate.txt", m_chCurrentDir, RESULT_DIR, iLaneID, GetTickCount());
         Tool_SaveFile(chFileName, chPlateNumber, sizeof(chPlateNumber));
     }
 
@@ -470,7 +516,7 @@ void CTestTool_WJSWDLLDlg::OnBnClickedButtonWvsStartrecord()
     int iLaneID = atoi(chValue);
 
     char chVideoName[256] = {0};
-    sprintf_s(chVideoName, sizeof(chVideoName), "%s\\%d-%lu.mp4",m_chCurrentDir, iLaneID, GetTickCount());
+    sprintf_s(chVideoName, sizeof(chVideoName), "%s%s%d-%lu.mp4", m_chCurrentDir, RESULT_DIR, iLaneID, GetTickCount());
 
     int iRet = WVS_Startrecord(iLaneID, chVideoName);
 
@@ -564,4 +610,22 @@ bool CTestTool_WJSWDLLDlg::Tool_SaveFile(const char* szPath, void* pbData, size_
         sprintf_s(chLogBuff, sizeof(chLogBuff), "%s open failed, error code = %d", szPath, errCode);
     }
     return bRet;
+}
+
+
+void CTestTool_WJSWDLLDlg::OnBnClickedButtonWvsGetrecord()
+{
+    // TODO:  在此添加控件通知处理程序代码
+    char chValue[256] = { 0 };
+    GetItemText(IDC_EDIT_LANEID, chValue, sizeof(chValue));
+    int iLaneID = atoi(chValue);
+
+    char chVideoFile[256] = {0};
+    sprintf_s(chVideoFile, sizeof(chVideoFile), "%s%s%d-%lu.mp4", m_chCurrentDir, RESULT_DIR, iLaneID, GetTickCount());
+
+    int iRet = WVS_Getrecord(iLaneID, chVideoFile);
+
+    char chLog[256] = { 0 };
+    sprintf_s(chLog, sizeof(chLog), "WVS_Getrecord(%d) = %d, ", iLaneID, iRet);
+    ShowMessage(chLog);
 }

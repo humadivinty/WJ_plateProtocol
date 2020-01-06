@@ -106,6 +106,7 @@
     <ClInclude Include="targetver.h" />
     <ClInclude Include="TestTool_WJSWDLL.h" />
     <ClInclude Include="TestTool_WJSWDLLDlg.h" />
+    <ClInclude Include="ToolFunction_simple.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -114,6 +115,7 @@
     </ClCompile>
     <ClCompile Include="TestTool_WJSWDLL.cpp" />
     <ClCompile Include="TestTool_WJSWDLLDlg.cpp" />
+    <ClCompile Include="ToolFunction_simple.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="TestTool_WJSWDLL.rc" />

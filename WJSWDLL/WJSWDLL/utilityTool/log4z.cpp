@@ -34,9 +34,6 @@
  * (end of COPYRIGHT)
  */
 
-#include "stdafx.h"
-
-
 #include "log4z.h"
 #include <stdio.h>
 #include <stdlib.h>

@@ -7,6 +7,7 @@
 #include "CameraModule/Camera6467_VFR.h"
 #include "utilityTool/ToolFunction.h"
 #include "CameraModule/DeviceListManager.h"
+#include "ResultSentStatusManager.h"
 #include <algorithm>
 
 Camera6467_plate* pCamera = NULL;
@@ -22,7 +23,26 @@ Camera6467_plate* pCamera = NULL;
 #define CAMERA_TYPE_VFR 1
 
 std::list<CameraInfo> g_CameraInfoList;
+int g_iCameraMode = CAMERA_TYPE_PLATE;
 static int g_MsgPLATENO = ::RegisterWindowMessage("PLATENO");
+
+BaseCamera* GetCamerByModeAndLaneNo(int iMode, int LaneNo)
+{
+    BaseCamera* pCamTemp = NULL;
+    switch (iMode)
+    {
+    case CAMERA_TYPE_PLATE:
+        pCamTemp = DeviceListManager::GetInstance()->GetDeviceById(LaneNo);
+        break;
+    case CAMERA_TYPE_VFR:
+        pCamTemp = DeviceListManager::GetInstance()->GetDeviceById(1);
+        break;
+    default:
+        break;
+    }
+    return pCamTemp;
+}
+
 
 WJSWDLL_API int DELSPEC WVS_Initialize()
 {
@@ -31,6 +51,12 @@ WJSWDLL_API int DELSPEC WVS_Initialize()
     g_CameraInfoList.clear();
     Tool_LoadCamerInfoFromINI(INI_FILE_NAME, g_CameraInfoList);
     WRITE_LOG("read %s finish. ", INI_FILE_NAME);
+
+    Tool_ReadIntValueFromConfigFile(INI_FILE_NAME, "CameraMode", "type", g_iCameraMode);
+    WRITE_LOG("read from %s, camera mode = %d ( %s )", 
+        INI_FILE_NAME, 
+        g_iCameraMode,
+        g_iCameraMode == 0 ? "CAMERA_TYPE_PLATE" : "CAMERA_TYPE_VFR");
 
     BaseCamera* pTemp = NULL;
     for (std::list<CameraInfo>::iterator it = g_CameraInfoList.begin(); it != g_CameraInfoList.end(); it++)
@@ -83,7 +109,7 @@ WJSWDLL_API int DELSPEC WVS_Settime(int LaneNo)
 {
     WRITE_LOG("begin , LaneNo = %d.", LaneNo);
     int iRet = -1;
-    BaseCamera* pCamTemp = DeviceListManager::GetInstance()->GetDeviceById(LaneNo);
+    BaseCamera* pCamTemp = GetCamerByModeAndLaneNo(g_iCameraMode, LaneNo);
     if (NULL != pCamTemp)
     {
         if (pCamTemp->SynTime())
@@ -108,25 +134,31 @@ WJSWDLL_API int DELSPEC WVS_GetBigImage(unsigned char LaneNo, int IdentNo, char*
 {
     WRITE_LOG("begin , LaneNo = %d, IdentNo = %d, ImgBuf = %p, ImgBufLen = %d, ImgSize = %p.", LaneNo, IdentNo, ImgBuf, ImgBufLen, ImgSize);
     int iRet = -1;
-    BaseCamera* pCamTemp = DeviceListManager::GetInstance()->GetDeviceById(LaneNo);
+    BaseCamera* pCamTemp = GetCamerByModeAndLaneNo(g_iCameraMode, LaneNo);
     if (NULL != pCamTemp)
     {
         std::shared_ptr<CameraResult> pResult;
+        ResultSentStatus SentStatus;
+        int iItem = item_receiveTime;
+        long iValue = 0;
         switch (pCamTemp->GetDeviceType())
         {
         case CAMERA_TYPE_PLATE:
             pResult = std::shared_ptr<CameraResult>(((Camera6467_plate*)pCamTemp)->GetOneResult());
             break;
         case CAMERA_TYPE_VFR:
-            pResult = ((Camera6467_VFR*)pCamTemp)->GetFrontResult();
+            if (((Camera6467_VFR*)pCamTemp)->GetFrontSendStatus(SentStatus))
+            {
+                pResult = ((Camera6467_VFR*)pCamTemp)->GetResultByCarID(SentStatus.dwCarID);
+            }
+            break;
         default:
             pResult = std::shared_ptr<CameraResult>(((Camera6467_plate*)pCamTemp)->GetOneResult());
             break;
         }
 
         if (pResult)
-        {
-            
+        {            
             unsigned char* pImagData = NULL;
             unsigned long dwIageDataLength = 0;
 
@@ -149,13 +181,40 @@ WJSWDLL_API int DELSPEC WVS_GetBigImage(unsigned char LaneNo, int IdentNo, char*
                 }
                 break;
             case CAMERA_TYPE_VFR:
-                pImagData = pResult->CIMG_BeginCapture.pbImgData;
-                dwIageDataLength = pResult->CIMG_BeginCapture.dwImgSize;
+                if (SentStatus.iFrontImgSendStatus == sta_waitGet)
+                {
+                    pImagData = pResult->CIMG_BeginCapture.pbImgData;
+                    dwIageDataLength = pResult->CIMG_BeginCapture.dwImgSize;
+
+                    iItem = item_frontImg;
+                    iValue = sta_sentFinish;                    
+                }
+                else if (SentStatus.iSidImgSendStatus == sta_waitGet)
+                {
+                    pImagData = pResult->CIMG_BestCapture.pbImgData;
+                    dwIageDataLength = pResult->CIMG_BestCapture.dwImgSize;
+
+                    iItem = item_sideImg;
+                    iValue = sta_sentFinish;
+                }
+                else if (SentStatus.iTailImgSendStatus == sta_waitGet)
+                {
+                    pImagData = pResult->CIMG_LastCapture.pbImgData;
+                    dwIageDataLength = pResult->CIMG_LastCapture.dwImgSize;
+
+                    iItem = item_tailImg;
+                    iValue = sta_sentFinish;
+                }
+                else
+                {
+                    WRITE_LOG("get result success, but item is not ready.", );
+                }
+                break;
             default:
                 pImagData = pResult->CIMG_BestSnapshot.pbImgData;
                 dwIageDataLength = pResult->CIMG_BestSnapshot.dwImgSize;
                 break;
-            }
+            }           
 
             WRITE_LOG("get result success is , carID = %lu, plate number = %s, big image data = %p,image length = %lu ",
                 dwCarID,
@@ -178,6 +237,13 @@ WJSWDLL_API int DELSPEC WVS_GetBigImage(unsigned char LaneNo, int IdentNo, char*
                 *ImgSize = 0;
                 WRITE_LOG("ImgBufLen %d is smaller than image data length %lu, do not copy data.", ImgBufLen, dwIageDataLength);
             }
+
+            if (CAMERA_TYPE_VFR == pCamTemp->GetDeviceType())
+            {
+                WRITE_LOG("current device type is VFR , upadate sent status , carid = %d , item = %d , value = %d.", pResult->dwCarID, iItem, iValue);
+                ((Camera6467_VFR*)pCamTemp)->UpdateSendStatus(pCamTemp->GetLoginID(), pResult->dwCarID, iItem, iValue);
+                ((Camera6467_VFR*)pCamTemp)->SetIfSendResult(false);
+            }
         }
         else
         {
@@ -196,7 +262,7 @@ WJSWDLL_API int DELSPEC WVS_GetFarBigImage(unsigned char LaneNo, int IdentNo, ch
 {
     WRITE_LOG("begin , LaneNo = %d, IdentNo = %d, ImgBuf = %p, ImgBufLen = %d, ImgSize = %p.", LaneNo, IdentNo, ImgBuf, ImgBufLen, ImgSize);
     int iRet = -1;
-    BaseCamera* pCamTemp = DeviceListManager::GetInstance()->GetDeviceById(LaneNo);
+    BaseCamera* pCamTemp = GetCamerByModeAndLaneNo(g_iCameraMode, LaneNo);
     if (NULL != pCamTemp)
     {
         std::shared_ptr<CameraResult> pResult;
@@ -207,6 +273,7 @@ WJSWDLL_API int DELSPEC WVS_GetFarBigImage(unsigned char LaneNo, int IdentNo, ch
             break;
         case CAMERA_TYPE_VFR:
             pResult = ((Camera6467_VFR*)pCamTemp)->GetFrontResult();
+            break;
         default:
             pResult = std::shared_ptr<CameraResult>(((Camera6467_plate*)pCamTemp)->GetOneResult());
             break;
@@ -275,9 +342,13 @@ WJSWDLL_API int DELSPEC WVS_GetSmallImage(unsigned char LaneNo, int IdentNo, cha
 {
     WRITE_LOG("begin , LaneNo = %d, IdentNo = %d, ImgBuf = %p, ImgBufLen = %d, ImgSize = %p.", LaneNo,  IdentNo,  ImgBuf,  ImgBufLen,  ImgSize);
     int iRet = -1;
-    BaseCamera* pCamTemp = DeviceListManager::GetInstance()->GetDeviceById(LaneNo);
+    BaseCamera* pCamTemp = GetCamerByModeAndLaneNo(g_iCameraMode, LaneNo);
     if (NULL != pCamTemp)
     {
+        ResultSentStatus SentStatus;
+        int iItem = item_receiveTime;
+        long iValue = 0;
+
         std::shared_ptr<CameraResult> pResult;
         switch (pCamTemp->GetDeviceType())
         {
@@ -285,7 +356,11 @@ WJSWDLL_API int DELSPEC WVS_GetSmallImage(unsigned char LaneNo, int IdentNo, cha
             pResult = std::shared_ptr<CameraResult>(((Camera6467_plate*)pCamTemp)->GetOneResult());
             break;
         case CAMERA_TYPE_VFR:
-            pResult = ((Camera6467_VFR*)pCamTemp)->GetFrontResult();
+            if (((Camera6467_VFR*)pCamTemp)->GetFrontSendStatus(SentStatus))
+            {
+                pResult = ((Camera6467_VFR*)pCamTemp)->GetResultByCarID(SentStatus.dwCarID);
+            }
+            break;
         default:
             pResult = std::shared_ptr<CameraResult>(((Camera6467_plate*)pCamTemp)->GetOneResult());
             break;
@@ -330,6 +405,15 @@ WJSWDLL_API int DELSPEC WVS_GetSmallImage(unsigned char LaneNo, int IdentNo, cha
                 *ImgSize = 0;
                 WRITE_LOG("ImgBufLen %d is smaller than image data length %lu, do not copy data.", ImgBufLen, dwIageDataLength);
             }
+
+            if (CAMERA_TYPE_VFR == pCamTemp->GetDeviceType()
+                /*&& TRUE == bRet*/)
+            {
+                int iItem = item_smallImg;
+                long iValue = sta_sentFinish;
+                WRITE_LOG("current device type is VFR , upadate sent status , carid = %d , item = %d , value = %d.", pResult->dwCarID, iItem, iValue);
+                ((Camera6467_VFR*)pCamTemp)->UpdateSendStatus(pCamTemp->GetLoginID(), pResult->dwCarID, iItem, iValue);
+            }
         }
         else
         {
@@ -348,9 +432,13 @@ WJSWDLL_API int DELSPEC WVS_GetPlateNo(unsigned char LaneNo, int IdentNo, char* 
 {
     WRITE_LOG("begin , LaneNo = %d, IdentNo = %d, PlateNo = %p, PlateNoLen = %d.", LaneNo, IdentNo, PlateNo, PlateNoLen);
     int iRet = -1;
-    BaseCamera* pCamTemp = DeviceListManager::GetInstance()->GetDeviceById(LaneNo);
+    BaseCamera* pCamTemp = GetCamerByModeAndLaneNo(g_iCameraMode, LaneNo);
     if (NULL != pCamTemp)
     {
+        ResultSentStatus SentStatus;
+        int iItem = item_receiveTime;
+        long iValue = 0;
+
         std::shared_ptr<CameraResult> pResult;
         switch (pCamTemp->GetDeviceType())
         {
@@ -358,7 +446,10 @@ WJSWDLL_API int DELSPEC WVS_GetPlateNo(unsigned char LaneNo, int IdentNo, char* 
             pResult = std::shared_ptr<CameraResult>(((Camera6467_plate*)pCamTemp)->GetOneResult());
             break;
         case CAMERA_TYPE_VFR:
-            pResult = ((Camera6467_VFR*)pCamTemp)->GetFrontResult();
+            if (((Camera6467_VFR*)pCamTemp)->GetFrontSendStatus(SentStatus))
+            {
+                pResult = ((Camera6467_VFR*)pCamTemp)->GetResultByCarID(SentStatus.dwCarID);
+            }
             break;
         default:
             pResult = std::shared_ptr<CameraResult>(((Camera6467_plate*)pCamTemp)->GetOneResult());
@@ -403,7 +494,7 @@ WJSWDLL_API int DELSPEC WVS_ForceSendLaneHv(int LaneNo, int ImageOutType)
 {
     WRITE_LOG("begin , LaneNo = %d, ImageOutType = %d.", LaneNo, ImageOutType);
     int iRet = -1;
-    BaseCamera* pCamTemp = DeviceListManager::GetInstance()->GetDeviceById(LaneNo);
+    BaseCamera* pCamTemp = GetCamerByModeAndLaneNo(g_iCameraMode, LaneNo);
     if (NULL != pCamTemp)
     {
         if (pCamTemp->TakeCapture())
@@ -428,7 +519,7 @@ WJSWDLL_API int DELSPEC WVS_StartRealPlay(int LaneNo, HWND FormHwnd)
 {
     WRITE_LOG("begin , LaneNo = %d, FormHwnd = %p.", LaneNo, FormHwnd);
     int iRet = -1;
-    BaseCamera* pCamTemp = DeviceListManager::GetInstance()->GetDeviceById(LaneNo);
+    BaseCamera* pCamTemp = GetCamerByModeAndLaneNo(g_iCameraMode, LaneNo);
     if (NULL != pCamTemp)
     {
         auto camInfo = std::find_if(std::begin(g_CameraInfoList), 
@@ -461,7 +552,7 @@ WJSWDLL_API int DELSPEC WVS_StopRealPlay(int LaneNo)
 {
     WRITE_LOG("begin , LaneNo = %d.", LaneNo);
     int iRet = -1;
-    BaseCamera* pCamTemp = DeviceListManager::GetInstance()->GetDeviceById(LaneNo);
+    BaseCamera* pCamTemp = GetCamerByModeAndLaneNo(g_iCameraMode, LaneNo);
     if (NULL != pCamTemp)
     {
         auto camInfo = std::find_if(std::begin(g_CameraInfoList),
@@ -490,34 +581,38 @@ WJSWDLL_API int DELSPEC WVS_StopRealPlay(int LaneNo)
     return iRet;
 }
 
-WJSWDLL_API int DELSPEC WVS_Startrecord(int LaneNO, char *sFileName)
+WJSWDLL_API int DELSPEC WVS_Startrecord(int LaneNo, char *sFileName)
 {
-    if (LaneNO < 0
+    if (LaneNo < 0
         || NULL == sFileName
         || strlen(sFileName) == 0)
     {
         WRITE_LOG("parameter is invalid.");
         return -1;
     }
-    WRITE_LOG("begin , LaneNO = %d, sFileName = %s.", LaneNO, sFileName);
+    WRITE_LOG("begin , LaneNO = %d, sFileName = %s.", LaneNo, sFileName);
 
     int iRet = -1;
-    BaseCamera* pCamTemp = DeviceListManager::GetInstance()->GetDeviceById(LaneNO);
+    BaseCamera* pCamTemp = GetCamerByModeAndLaneNo(g_iCameraMode, LaneNo);
     if (NULL != pCamTemp)
     {
         switch (pCamTemp->GetDeviceType())
         {
         case CAMERA_TYPE_PLATE:
         case CAMERA_TYPE_VFR:
-        default:
             pCamTemp->StartToSaveAviFile(0, sFileName, pCamTemp->GetCurrentH264FrameTime());
+            break;
+        //case CAMERA_TYPE_VFR:
+        //    WRITE_LOG(" %d is CAMERA_TYPE_VFR,  unsupport save video with no finish time.", LaneNo);
+        //    break;
+        default:            
             break;
         }
         iRet = 0;
     }
     else
     {
-        WRITE_LOG("can not find the camer by Id %d .", LaneNO);
+        WRITE_LOG("can not find the camer by Id %d .", LaneNo);
     }
     WRITE_LOG("finish, return %d", iRet);
     return iRet;
@@ -527,15 +622,19 @@ WJSWDLL_API int DELSPEC WVS_Stoprecord(int LaneNo)
 {
     WRITE_LOG("begin , LaneNo = %d.", LaneNo);
     int iRet = -1;
-    BaseCamera* pCamTemp = DeviceListManager::GetInstance()->GetDeviceById(LaneNo);
+    BaseCamera* pCamTemp = GetCamerByModeAndLaneNo(g_iCameraMode, LaneNo);
     if (NULL != pCamTemp)
     {
         switch (pCamTemp->GetDeviceType())
         {
         case CAMERA_TYPE_PLATE:
         case CAMERA_TYPE_VFR:
-        default:
             pCamTemp->StopSaveAviFile(0);
+            break;
+        //case CAMERA_TYPE_VFR:
+        //    WRITE_LOG(" %d is CAMERA_TYPE_VFR,  unsupport stop video with no begin time.", LaneNo);
+        //    break;
+        default:
             break;
         }
         iRet = 0;
@@ -552,12 +651,99 @@ WJSWDLL_API int DELSPEC WVS_GetHvIsConnected(int LaneNo)
 {
     WRITE_LOG("begin , LaneNo = %d.", LaneNo);
     int iRet = -1;
-    BaseCamera* pCamTemp = DeviceListManager::GetInstance()->GetDeviceById(LaneNo);
+    BaseCamera* pCamTemp = GetCamerByModeAndLaneNo(g_iCameraMode, LaneNo);
     if (NULL != pCamTemp)
     {
         if (0 == pCamTemp->GetCamStatus())
         {
             iRet = 0;
+        }
+    }
+    else
+    {
+        WRITE_LOG("can not find the camer by Id %d .", LaneNo);
+    }
+    WRITE_LOG("finish, return %d", iRet);
+    return iRet;
+}
+
+WJSWDLL_API int DELSPEC WVS_Getrecord(int LaneNo, char *sFileName)
+{
+    WRITE_LOG("begin , LaneNo = %d, sFileName = %s.", LaneNo, sFileName);
+    int iRet = -1;
+    BaseCamera* pCamTemp = GetCamerByModeAndLaneNo(g_iCameraMode, LaneNo);
+    if (NULL != pCamTemp)
+    {
+        std::shared_ptr<CameraResult> pResult;
+        ResultSentStatus SentStatus;
+        int iItem = item_receiveTime;
+        long iValue = 0;
+        switch (pCamTemp->GetDeviceType())
+        {
+        case CAMERA_TYPE_PLATE:
+            pResult = std::shared_ptr<CameraResult>(((Camera6467_plate*)pCamTemp)->GetOneResult());
+            break;
+        case CAMERA_TYPE_VFR:
+            if (((Camera6467_VFR*)pCamTemp)->GetFrontSendStatus(SentStatus))
+            {
+                pResult = ((Camera6467_VFR*)pCamTemp)->GetResultByCarID(SentStatus.dwCarID);
+            }
+            break;
+        default:
+            pResult = std::shared_ptr<CameraResult>(((Camera6467_plate*)pCamTemp)->GetOneResult());
+            break;
+        }
+
+        if (pResult)
+        {
+            WRITE_LOG("get result success is , carID = %lu, plate number = %s",   pResult->dwCarID,  pResult->chPlateNO);
+
+            bool bVideoReady = false;
+            for (int iTryTime = 0; iTryTime < 15; iTryTime++)
+            {
+                if (pCamTemp->FindIfFileNameInReciveList(pResult->chSaveFileName))
+                {
+                    bVideoReady = true;
+                    break;                    
+                }
+                Sleep(100);
+            }
+
+            BOOL bRet = FALSE;
+            if (bVideoReady)
+            {
+                WRITE_LOG("video %s is ready, rename to the new path %s", pResult->chSaveFileName, sFileName);
+                bRet = CopyFile(pResult->chSaveFileName, sFileName, FALSE);
+                WRITE_LOG("CopyFile video %s  finish , operation code = %d, getlast error = %s",
+                    sFileName,
+                    bRet,
+                    bRet ? "NULL" : Tool_GetLastErrorAsString().c_str());
+
+                iRet = bRet ? 0 : iRet;
+            }
+            else
+            {
+                WRITE_LOG("video %s is not ready", pResult->chSaveFileName);
+            }
+
+            if (CAMERA_TYPE_VFR == pCamTemp->GetDeviceType()
+                /*&& TRUE == bRet*/)
+            {
+                int iItem = item_video;
+                long iValue = sta_sentFinish;
+                WRITE_LOG("current device type is VFR , upadate sent status , carid = %d , item = %d , value = %d.", pResult->dwCarID, iItem, iValue);
+                ((Camera6467_VFR*)pCamTemp)->UpdateSendStatus(pCamTemp->GetLoginID(), pResult->dwCarID, iItem, iValue);
+                ((Camera6467_VFR*)pCamTemp)->SetIfSendResult(false);
+
+                if (TRUE == bRet)
+                {
+                    remove(pResult->chSaveFileName);
+                }
+            }
+        }
+        else
+        {
+            WRITE_LOG("result is not ready");
         }
     }
     else

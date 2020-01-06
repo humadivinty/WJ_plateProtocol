@@ -172,6 +172,19 @@ WJSWDLL_API int DELSPEC WVS_Stoprecord(int LaneNo);
 //************************************
 WJSWDLL_API int DELSPEC WVS_GetHvIsConnected(int LaneNo);
 
+ //************************************
+ // Method:        WVS_Getrecord
+// Describe:   ：该功能是在上位机接到录像完毕的消息后调用。调用此函数时相机将捕获到的视
+//                      频按传入的完整路径进行保存。若缓存中包含多个视频文件则只保存最近的一个。
+ // FullName:      WVS_Getrecord
+ // Access:          public 
+ // Returns:        int                            ;0  成功；-1 失败，失败时记录错误日志
+ // Returns Describe:
+ // Parameter:    int LaneNo               ;车道号，默认 1  ，用来区分相机
+ // Parameter:    char * sFileName      ; 视频文件保存路径 
+ //************************************
+WJSWDLL_API int DELSPEC  WVS_Getrecord(int LaneNo, char *sFileName);
+
 /*
     配置文件
     1、配置文件说明

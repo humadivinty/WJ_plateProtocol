@@ -52,3 +52,4 @@
 #endif
 
 
+#define INI_FILE_NAME "\\vehicledetectorconfig.ini"

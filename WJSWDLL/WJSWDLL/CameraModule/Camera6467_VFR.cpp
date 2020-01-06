@@ -42,6 +42,7 @@ m_hMsgHanldle(NULL),
 m_pResult(NULL),
 m_bStatusCheckThreadExit(false),
 m_bJpegComplete(false),
+m_bSentResult(false),
 m_hStatusCheckThread(NULL),
 m_hSendResultThread(NULL),
 m_hDeleteLogThread(NULL),
@@ -49,7 +50,7 @@ m_hDeleteResultThread(NULL)
 {
     InitializeCriticalSection(&m_csResult);
     ReadConfig();
-
+    m_h264Saver.initMode(m_iVideoMode);
     m_hStatusCheckThread = (HANDLE)_beginthreadex(NULL, 0, Camera_StatusCheckThread, this, 0, NULL);
     m_hSendResultThread = (HANDLE)_beginthreadex(NULL, 0, s_SendResultThreadFunc, this, 0, NULL);
     //m_hDeleteLogThread = (HANDLE)_beginthreadex(NULL, 0, s_DeleteLogThreadFunc, this, 0, NULL);
@@ -75,6 +76,7 @@ m_hMsgHanldle(hWnd),
 m_pResult(NULL),
 m_bStatusCheckThreadExit(false),
 m_bJpegComplete(false),
+m_bSentResult(false),
 m_hStatusCheckThread(NULL),
 m_hSendResultThread(NULL),
 m_hDeleteLogThread(NULL),
@@ -83,6 +85,7 @@ m_hDeleteResultThread(NULL)
     InitializeCriticalSection(&m_csResult);
     ReadConfig();
 
+    m_h264Saver.initMode(m_iVideoMode);
     m_hStatusCheckThread = (HANDLE)_beginthreadex(NULL, 0, Camera_StatusCheckThread, this, 0, NULL);
     m_hSendResultThread = (HANDLE)_beginthreadex(NULL, 0, s_SendResultThreadFunc, this, 0, NULL);
     //m_hDeleteLogThread = (HANDLE)_beginthreadex(NULL, 0, s_DeleteLogThreadFunc, this, 0, NULL);
@@ -96,7 +99,7 @@ Camera6467_VFR::~Camera6467_VFR()
 
     m_Camera_Plate = nullptr;
     SetCheckThreadExit(true);
-    m_MySemaphore.notify(GetCurrentThreadId());
+    //m_MySemaphore.notify(GetCurrentThreadId());
     SetResultCallback(NULL, NULL);
     Tool_SafeCloseThread(m_hStatusCheckThread);
     Tool_SafeCloseThread(m_hSendResultThread);
@@ -562,9 +565,10 @@ void Camera6467_VFR::ReadConfig()
     //Tool_ReadIntValueFromConfigFile(INI_FILE_NAME, "Filter", "ResultTimeOut", iTempValue);
     //m_iResultTimeOut = iTempValue > 0 ? iTempValue : 1500;    
 
-    iTempValue = 1;
+    iTempValue = 1000;
     Tool_ReadIntValueFromConfigFile(INI_FILE_NAME, "Result", "WaitTimeOut", iTempValue);
-    m_iWaitVfrTimeOut = iTempValue > 0 ? iTempValue : 2;
+    iTempValue = iTempValue > 0 ? iTempValue : 2000;
+    SetResultWaitTime(iTempValue);
 
     iTempValue = 0;
     Tool_ReadIntValueFromConfigFile(INI_FILE_NAME, "Result", "HoldDays", iTempValue);
@@ -575,6 +579,10 @@ void Camera6467_VFR::ReadConfig()
     iTempValue = 1;
     Tool_ReadIntValueFromConfigFile(INI_FILE_NAME, "Result", "GetMode", iTempValue);
     m_iResultModule = iTempValue > 0 ? iTempValue : 0;
+
+    iTempValue = 0;
+    Tool_ReadIntValueFromConfigFile(INI_FILE_NAME, "Video", "mode", iTempValue);
+    m_iVideoMode = iTempValue;
 
     BaseCamera::ReadConfig();
 }
@@ -929,6 +937,11 @@ std::shared_ptr<CameraResult> Camera6467_VFR::GetLastResult()
     return temp;
 }
 
+std::shared_ptr<CameraResult> Camera6467_VFR::GetResultByCarID(unsigned long dwCarID)
+{
+    return m_VfrResultList.GetOneByCarid(dwCarID);
+}
+
 bool Camera6467_VFR::GetLastResultIfReceiveComplete()
 {
     bool bValue = false;
@@ -1047,7 +1060,7 @@ size_t Camera6467_VFR::GetResultListSize()
 
 void Camera6467_VFR::TryWaitCondition()
 {
-    m_MySemaphore.tryDecrease(GetCurrentThreadId());
+    //m_MySemaphore.tryDecrease(GetCurrentThreadId());
 }
 
 int Camera6467_VFR::RecordInfoBegin(DWORD dwCarID)
@@ -1138,7 +1151,7 @@ int Camera6467_VFR::RecordInfoEnd(DWORD dwCarID)
                 {
                     WriteFormatLog("current length %f is larger than max length %d, clear list first.", m_pResult->fVehLenth, m_iSuperLenth);
                    // m_resultList.ClearALL();
-                    m_MySemaphore.resetCount(GetCurrentThreadId());
+                   // m_MySemaphore.resetCount(GetCurrentThreadId());
                     m_VfrResultList.ClearALLResult();                    
                 }
                 WriteFormatLog("push one result to list, current list plate NO:\n");
@@ -1151,42 +1164,42 @@ int Camera6467_VFR::RecordInfoEnd(DWORD dwCarID)
                     WriteFormatLog("list is empty.");
                 }
                 std::shared_ptr<CameraResult> pResult(m_pResult);
-                if (m_dwLastCarID == dwCarID)
+
+                std::shared_ptr<CameraResult> pLastSameResult = m_VfrResultList.GetOneByCarid(dwCarID);
+                if (pLastSameResult)
                 {
-                    WriteFormatLog("current car ID  %lu is  same wit last carID %lu, replace the last one.", dwCarID, m_dwLastCarID);
+                    WriteFormatLog("current car ID  %lu is already receive, replace it.", dwCarID, m_dwLastCarID);
 
-                    std::shared_ptr<CameraResult> lastResult;
-                    m_VfrResultList.back(lastResult);
-
-                    if (lastResult
-                        &&strlen(lastResult->chSaveFileName) > 0
-                        && lastResult->dwCarID == dwCarID)
+                    if (pLastSameResult
+                        &&strlen(pLastSameResult->chSaveFileName) > 0
+                        && pLastSameResult->dwCarID == dwCarID)
                     {
-                        WriteFormatLog("last car ID  %lu , avi fileName = %s.", lastResult->dwCarID, lastResult->chSaveFileName);
-                        strcpy_s(pResult->chSaveFileName, lastResult->chSaveFileName);
-                        m_VfrResultList.pop_back();
-                    }                    
+                        WriteFormatLog("last car ID  %lu , avi fileName = %s.", pLastSameResult->dwCarID, pLastSameResult->chSaveFileName);
+                        strcpy_s(pResult->chSaveFileName, pLastSameResult->chSaveFileName);                       
+                    } 
+                    m_VfrResultList.ReplaceByCarID(dwCarID, pResult);
                 }
                 else
                 {
                     m_dwLastCarID = dwCarID;
-                    m_MySemaphore.notify(GetCurrentThreadId());
-                }
-                m_VfrResultList.push_back(pResult);
+                    //m_MySemaphore.notify(GetCurrentThreadId());
+                    m_VfrResultList.push_back(pResult);
+                }                
                 WriteFormatLog("after push, list plate NO:\n");
-                BaseCamera::WriteLog(m_VfrResultList.GetAllPlateString().c_str());                
-
+                BaseCamera::WriteLog(m_VfrResultList.GetAllPlateString().c_str());   
                 //SendResultByCallback(pResult);
+
+                UpdateSentStatus(m_pResult);
 
                 m_pResult = NULL;
             }
 
-            if (NULL != m_hMsgHanldle)
-            {
-                WriteLog("PostMessage");
-                //::PostMessage(*((HWND*)m_hWnd),m_iMsg, 1, 0);
-                ::PostMessage((HWND)m_hMsgHanldle, m_iResultMsg, (WPARAM)1, 0);
-            }
+            //if (NULL != m_hMsgHanldle)
+            //{
+            //    WriteLog("PostMessage");
+            //    //::PostMessage(*((HWND*)m_hWnd),m_iMsg, 1, 0);
+            //    ::PostMessage((HWND)m_hMsgHanldle, m_iResultMsg, (WPARAM)1, 0);
+            //}
         }
         else
         {
@@ -1269,8 +1282,11 @@ int Camera6467_VFR::RecordInfoPlate(DWORD dwCarID,
         //QDir dir(chAviPath);
         //dir.mkpath(chAviPath);
 
-        if(m_dwLastCarID != dwCarID)
+        //if(m_dwLastCarID != dwCarID)
+        if (!FindIfCarIDInTheList(dwCarID))
         {
+            //InsertCarIDToTheList(dwCarID);
+
             char chImgDir[256] = { 0 };
             GetImageDir(chImgDir, sizeof(chImgDir));
             std::string strPlateTime(m_pResult->chPlateTime);
@@ -1645,27 +1661,27 @@ int Camera6467_VFR::RecordInfoSmallImage(DWORD dwCarID,
                 CopyDataToIMG(m_pResult->CIMG_PlateImage, pbPicData, wWidth, wHeight, dwImgDataLen, 0);
             }
 
-            if (m_pResult->CIMG_PlateImage.pbImgData
-                && m_pResult->CIMG_PlateImage.dwImgSize > 0)
-            {
-                char* pSavePath = NULL;
-                std::string strPlateTime(m_pResult->chPlateTime);
+            //if (m_pResult->CIMG_PlateImage.pbImgData
+            //    && m_pResult->CIMG_PlateImage.dwImgSize > 0)
+            //{
+            //    char* pSavePath = NULL;
+            //    std::string strPlateTime(m_pResult->chPlateTime);
 
-                pSavePath = m_pResult->CIMG_PlateImage.chSavePath;
-                //sprintf_s(pSavePath, 256, "%s\\%s\\%lu-%I64u-plate.jpg",
-                //    m_chImageDir,
-                //    m_pResult->chPlateTime,
-                //    dwCarID,
-                //    m_pResult->dw64TimeMS);
-                sprintf_s(pSavePath, 256, "%s\\%s\\%s\\%s\\%s-front-plate.jpg",
-                    m_chImageDir,
-                    strPlateTime.substr(0, 4).c_str(),
-                    strPlateTime.substr(4, 2).c_str(),
-                    strPlateTime.substr(6, 2).c_str(),
-                    m_pResult->chPlateTime);
+            //    pSavePath = m_pResult->CIMG_PlateImage.chSavePath;
+            //    //sprintf_s(pSavePath, 256, "%s\\%s\\%lu-%I64u-plate.jpg",
+            //    //    m_chImageDir,
+            //    //    m_pResult->chPlateTime,
+            //    //    dwCarID,
+            //    //    m_pResult->dw64TimeMS);
+            //    sprintf_s(pSavePath, 256, "%s\\%s\\%s\\%s\\%s-front-plate.jpg",
+            //        m_chImageDir,
+            //        strPlateTime.substr(0, 4).c_str(),
+            //        strPlateTime.substr(4, 2).c_str(),
+            //        strPlateTime.substr(6, 2).c_str(),
+            //        m_pResult->chPlateTime);
 
-                //Tool_SaveFileToPath(pSavePath, m_pResult->CIMG_PlateImage.pbImgData, m_pResult->CIMG_PlateImage.dwImgSize);
-            }
+            //    //Tool_SaveFileToPath(pSavePath, m_pResult->CIMG_PlateImage.pbImgData, m_pResult->CIMG_PlateImage.dwImgSize);
+            //}
         }
         else
         {
@@ -1812,13 +1828,20 @@ bool Camera6467_VFR::checkIfHasThreePic(std::shared_ptr<CameraResult> result)
     return false;
 }
 
-DWORD Camera6467_VFR::getResultWaitTime()
+int Camera6467_VFR::getResultWaitTime()
 {
-    DWORD dwValue = 0;
+    int iValue = 0;
     EnterCriticalSection(&m_csFuncCallback);
-    dwValue = m_iWaitVfrTimeOut;
+    iValue = m_iWaitVfrTimeOut;
     LeaveCriticalSection(&m_csFuncCallback);
-    return dwValue;
+    return iValue;
+}
+
+void Camera6467_VFR::SetResultWaitTime(int iValue)
+{
+    EnterCriticalSection(&m_csFuncCallback);
+    m_iWaitVfrTimeOut = iValue;
+    LeaveCriticalSection(&m_csFuncCallback);
 }
 
 unsigned int Camera6467_VFR::SendResultThreadFunc()
@@ -1829,77 +1852,8 @@ unsigned int Camera6467_VFR::SendResultThreadFunc()
     while (!GetCheckThreadExit())
     {
         Sleep(100);
-        if (!m_VfrResultList.empty())
-        {
-            //CameraResult* pResult = NULL;
-            if (!bNeedSendResult)
-            {
-                SendStatues senSignal;
-                if (GetSignalListSize() > 0)
-                {
-                    senSignal = getFrontSendSignal();
-                    if (senSignal.iSendStatues != send_Finish)
-                    {
-                        deleteFrontSendSignal();
-                        continue;
-                    }
-                    deleteFrontSendSignal();
-                    bNeedSendResult = true;
-                }
-                else
-                {
-                    continue;
-                }
-            }
+       
 
-            std::shared_ptr<CameraResult> pResult;
-            m_VfrResultList.front(pResult);
-            if (NULL == pResult)
-            {
-                continue;
-            }
-            
-            int iTimeDelay = GetTickCount() - pResult->dwReceiveTime;
-            if (checkIfHasThreePic(pResult)
-                || iTimeDelay >= getResultWaitTime())
-            {
-                if (std::end(lsSentCarIdList) == std::find(std::begin(lsSentCarIdList), std::end(lsSentCarIdList), pResult->dwCarID))
-                {                    
-                    if (pResult->dwCarID != 0xfffffff)
-                    {
-                        SendResultByCallback(pResult);
-                    }
-                    else
-                    {
-                        WriteFormatLog("SendResultThreadFunc current ID is special %lu, do not send.", pResult->dwCarID);
-                    }
-                    if (lsSentCarIdList.size() > 5)
-                    {
-                        lsSentCarIdList.pop_front();
-                    }
-                    lsSentCarIdList.push_back(pResult->dwCarID);
-                    bNeedSendResult = false;
-                }
-                else
-                {
-                    WriteFormatLog("SendResultThreadFunc current ID %lu is send before, this time ignore.", pResult->dwCarID);
-                }
-                
-                //if (pResult->dwCarID != dwLastSendCarID
-                //    &&pResult->dwCarID != 0xfffffff)
-                //{
-                //    SendResultByCallback(pResult);
-                //    dwLastSendCarID = pResult->dwCarID;
-                //}
-                
-                if (CheckIfSetResultCallback())
-                {
-                    m_VfrResultList.DeleteToPosition(0);
-                }                
-            }                       
-
-            pResult = NULL;
-        }
     }
     WriteFormatLog("SendResultThreadFunc finish.");
     return 0;
@@ -1913,79 +1867,7 @@ unsigned int Camera6467_VFR::SendResultThreadFunc_lastResult()
     while (!GetCheckThreadExit())
     {
         Sleep(100);
-        if (GetLastResultIfReceiveComplete())
-        {
-            
-            //CameraResult* pResult = NULL;
-            if (!bNeedSendResult)
-            {
-                SendStatues senSignal;
-                if (GetSignalListSize() > 0)
-                {
-                    senSignal = getFrontSendSignal();
-                    if (senSignal.iSendStatues != send_Finish)
-                    {
-                        deleteFrontSendSignal();
-                        continue;
-                    }
-                    deleteFrontSendSignal();
-                    bNeedSendResult = true;
-                    WriteFormatLog("last result is complete and get the signal.");
-                }
-                else
-                {
-                    continue;
-                }
-            }
 
-            std::shared_ptr<CameraResult> pResult = GetLastResult();
-
-            if (NULL == pResult)
-            {
-                continue;
-            }
-            WriteFormatLog("get last result success.");
-            int iTimeDelay = GetTickCount() - pResult->dwReceiveTime;
-            if (checkIfHasThreePic(pResult)
-                || iTimeDelay >= getResultWaitTime())
-            {
-                if (std::end(lsSentCarIdList) == std::find(std::begin(lsSentCarIdList), std::end(lsSentCarIdList), pResult->dwCarID))
-                {
-                    if (pResult->dwCarID != 0xfffffff)
-                    {
-                        SendResultByCallback(pResult);
-                    }
-                    else
-                    {
-                        WriteFormatLog("SendResultThreadFunc current ID is special %lu, do not send.", pResult->dwCarID);
-                    }
-                    if (lsSentCarIdList.size() > 5)
-                    {
-                        lsSentCarIdList.pop_front();
-                    }
-                    lsSentCarIdList.push_back(pResult->dwCarID);
-                    bNeedSendResult = false;
-                }
-                else
-                {
-                    WriteFormatLog("SendResultThreadFunc current ID %lu is send before, this time ignore.", pResult->dwCarID);
-                }
-
-                //if (pResult->dwCarID != dwLastSendCarID
-                //    &&pResult->dwCarID != 0xfffffff)
-                //{
-                //    SendResultByCallback(pResult);
-                //    dwLastSendCarID = pResult->dwCarID;
-                //}
-                SetLastResultIfReceiveComplete(false);
-            }
-            else
-            {
-                WriteFormatLog("last result %lu, is not Meet the criteria.", pResult->dwCarID);
-            }
-
-            pResult = NULL;
-        }
     }
     WriteFormatLog("SendResultThreadFunc finish.");
     return 0;
@@ -1997,88 +1879,101 @@ unsigned int Camera6467_VFR::SendResultThreadFunc_WithNoSignal()
     std::list<DWORD> lsSentCarIdList;
     bool bSendResult = false;
     std::shared_ptr<CameraResult> pResult;
-#define EXCEPTION_TIME_OUT (30*1000)
+    int iWaitTimeOut = getResultWaitTime();
+    unsigned long dwCurrentTick = GetTickCount();
+    int iSendItem = 0;
     while (!GetCheckThreadExit())
     {
-        Sleep(10);
-        //m_MySemaphore.wait(GetCurrentThreadId());
-        if (RESULT_MODE_FRONT == m_iResultModule
-            && GetResultListSize() > 0)
-        {
-            m_MySemaphore.wait(GetCurrentThreadId());
-            pResult = GetFrontResult();
-        }
-        else
-        {
-            if (GetLastResultIfReceiveComplete())
-            {
-                pResult = GetLastResult();                
-            }            
-        } 
-
-        if (NULL == pResult)
+        Sleep(100);
+        if (GetIfSendResult())
         {
             continue;
         }
-        WriteFormatLog("SendResultThreadFunc_WithNoSignal:: get  result success.");
-        int iTimeDelay = GetTickCount() - pResult->dwReceiveTime;
-        if (checkIfHasThreePic(pResult)
-            || iTimeDelay >= getResultWaitTime())
+
+        ResultSentStatus status;
+        if (!m_lsStatusList.getFirstElement(status))
         {
-            if (std::end(lsSentCarIdList) == std::find(std::begin(lsSentCarIdList), std::end(lsSentCarIdList), pResult->dwCarID))
-            {
-                if (pResult->dwCarID != 0xfffffff)
-                {
-                    SendResultByCallback(pResult);
-                }
-                else
-                {
-                    WriteFormatLog("SendResultThreadFunc current ID is special %lu, do not send.", pResult->dwCarID);
-                }
-                if (lsSentCarIdList.size() > 5)
-                {
-                    lsSentCarIdList.pop_front();
-                }
-                lsSentCarIdList.push_back(pResult->dwCarID);
-            }
-            else
-            {
-                WriteFormatLog("SendResultThreadFunc current ID %lu is send before, this time ignore.", pResult->dwCarID);
-            }
-            SetLastResultIfReceiveComplete(false);
-            bSendResult = true;
+            continue;
         }
-        else
-        {
-            WriteFormatLog("last result %lu , plate number = %s, is not Meet the criteria.", pResult->dwCarID, pResult->chPlateNO);
+        dwCurrentTick = GetTickCount();
+        if (dwCurrentTick - status.uTimeReceive >= iWaitTimeOut
+            || FindIfCarIDInTheList(status.dwCarID))
+        {            
+            WriteFormatLog("login id = %d , carId = %u , is time out, remove the status.", GetLoginID(), status.dwCarID);
+            m_VfrResultList.DeleteByCarID(status.dwCarID);
+            m_lsStatusList.RemoveElement(GetLoginID(), status.dwCarID);
+
+            if (!FindIfCarIDInTheList(status.dwCarID))
+            {
+                InsertCarIDToTheList(status.dwCarID);
+            }
+            continue;
         }
 
-        if (iTimeDelay > EXCEPTION_TIME_OUT)
+        if (status.iFrontImgSendStatus == sta_receiveDone)
         {
-            WriteFormatLog("first result carID= %lu ,plate number = %s , plate time = %s, has kept more than %d ms, clear all result in the list.", 
-                pResult->dwCarID, 
-                pResult->chPlateNO,
-                pResult->chPlateTime,
-                EXCEPTION_TIME_OUT);
-            m_MySemaphore.resetCount(GetCurrentThreadId());
-            ClearALLResult();
+            iSendItem = item_frontImg;
+            if (m_hWnd != NULL)
+            {
+                WriteFormatLog("PostMessage winWnd = %p, msg = %d, MsgType = %d", m_hWnd, m_iMsg, iSendItem);
+                ::PostMessage(m_hWnd, m_iMsg, iSendItem, 0);
+            }
+            UpdateSendStatus(GetLoginID(), status.dwCarID, iSendItem, sta_waitGet);
+            SetIfSendResult(true);
+            continue;
         }
 
-        if (RESULT_MODE_FRONT == m_iResultModule)
+        if (status.iSidImgSendStatus == sta_receiveDone)
         {
-            if (CheckIfSetResultCallback()
-                && bSendResult)
+            iSendItem = item_sideImg;
+            if (m_hWnd != NULL)
             {
-                DeleteFrontResult(NULL);
-                bSendResult = false;
+                WriteFormatLog("PostMessage winWnd = %p, msg = %d, MsgType = %d", m_hWnd, m_iMsg, iSendItem);
+                ::PostMessage(m_hWnd, m_iMsg, iSendItem, 0);
             }
-            else
-            {
-                m_MySemaphore.notify(GetCurrentThreadId());
-            }
+            UpdateSendStatus(GetLoginID(), status.dwCarID, iSendItem, sta_waitGet);
+            SetIfSendResult(true);
+            continue;
         }
 
-        pResult = NULL;
+        if (status.iTailImgSendStatus == sta_receiveDone)
+        {
+            iSendItem = item_tailImg;
+            if (m_hWnd != NULL)
+            {
+                WriteFormatLog("PostMessage winWnd = %p, msg = %d, MsgType = %d", m_hWnd, m_iMsg, iSendItem);
+                ::PostMessage(m_hWnd, m_iMsg, iSendItem, 0);
+            }
+            UpdateSendStatus(GetLoginID(), status.dwCarID, iSendItem, sta_waitGet);
+            SetIfSendResult(true);
+            continue;
+        }
+
+        if (status.iVideoSendStatus == sta_receiveDone)
+        {
+            iSendItem = item_video;
+            if (m_hWnd != NULL)
+            {
+                WriteFormatLog("PostMessage winWnd = %p, msg = %d, MsgType = %d", m_hWnd, m_iMsg, iSendItem);
+                ::PostMessage(m_hWnd, m_iMsg, iSendItem, 0);
+            }
+            UpdateSendStatus(GetLoginID(), status.dwCarID, iSendItem, sta_waitGet);
+            SetIfSendResult(true);
+            continue;
+        }
+
+        if (sta_sentFinish == status.iFrontImgSendStatus
+            && sta_sentFinish == status.iFrontImgSendStatus
+            && sta_sentFinish == status.iTailImgSendStatus)
+        {
+            WriteFormatLog("login id = %d, carId = %u  is sent finish  remove the status.", GetLoginID(), status.dwCarID);
+            m_VfrResultList.DeleteByCarID(status.dwCarID);
+            m_lsStatusList.RemoveElement(GetLoginID(), status.dwCarID);
+
+            InsertCarIDToTheList(status.dwCarID);
+            continue;
+        }
+
     }
     WriteFormatLog("SendResultThreadFunc finish.");
     return 0;
@@ -2155,56 +2050,121 @@ unsigned int Camera6467_VFR::DeleteResultThreadFunc()
     return 0;
 }
 
-void Camera6467_VFR::SetResultSendSignal(int iSignalID, int iSendStatus)
+void Camera6467_VFR::UpdateSentStatus(CameraResult* pResult)
 {
-    EnterCriticalSection(&m_csFuncCallback);
-    SendStatues signal;
-    signal.iSendID = iSignalID;
-    signal.iSendStatues = iSendStatus;
-    if (iSignalID == -1) 
-    { 
-        StatusList.push_back(signal);
+    
+    int iLogginID = GetLoginID();
+    int iItem = 0;
+    long iValue = sta_undefine;
+    DWORD dwCarID = pResult->dwCarID;
+    CameraIMG& img = pResult->CIMG_BeginCapture;
+    if (m_lsStatusList.GetRsultStatus(iLogginID, dwCarID, item_receiveTime, iValue))
+    {
+        auto funcUpdate = [](int iLogginID, int dwCarID, int iItem, long & iValue, ResultSentStatusManager& manager, CameraIMG& imgStruct)
+        {
+            if (imgStruct.dwImgSize > 0
+                && manager.GetRsultStatus(iLogginID, dwCarID, iItem, iValue)
+                && iValue == sta_undefine)
+            {
+                manager.UpdateStatus(iLogginID, dwCarID, iItem, sta_receiveDone);
+            }
+        };
+
+        iItem = item_frontImg;
+        iValue = sta_undefine;
+        img = pResult->CIMG_BeginCapture;
+        funcUpdate(iLogginID, dwCarID, iItem, iValue, m_lsStatusList, img);
+
+        iItem = item_sideImg;
+        iValue = sta_undefine;
+        img = pResult->CIMG_BestCapture;
+        funcUpdate(iLogginID, dwCarID, iItem, iValue, m_lsStatusList, img);
+
+        iItem = item_tailImg;
+        iValue = sta_undefine;
+        img = pResult->CIMG_LastCapture;
+        funcUpdate(iLogginID, dwCarID, iItem, iValue, m_lsStatusList, img);
+
+        iItem = item_smallImg;
+        iValue = sta_undefine;
+        img = pResult->CIMG_PlateImage;
+        funcUpdate(iLogginID, dwCarID, iItem, iValue, m_lsStatusList, img);
+
+        iItem = item_binImg;
+        iValue = sta_undefine;
+        img = pResult->CIMG_BinImage;
+        funcUpdate(iLogginID, dwCarID, iItem, iValue, m_lsStatusList, img);
+
+        iItem = item_video;
+        iValue = sta_undefine;
+        if (strlen(pResult->chSaveFileName) > 0
+            && m_lsStatusList.GetRsultStatus(iLogginID, dwCarID, iItem, iValue)
+            && iValue == sta_undefine)
+        {
+            m_lsStatusList.UpdateStatus(iLogginID, dwCarID, iItem, sta_receiveDone);
+        }
     }
     else
     {
-        for (std::list<SendStatues>::iterator it = StatusList.begin(); it != StatusList.end(); it++)
+        if (pResult->CIMG_BeginCapture.dwImgSize > 0)
         {
-            if (it->iSendID == signal.iSendID)
-            {
-                it->iSendStatues = signal.iSendStatues;
-                break;
-            }
+            m_lsStatusList.UpdateStatus(iLogginID, dwCarID, item_frontImg, sta_receiveDone);
+        }
+
+        if (pResult->CIMG_BestCapture.dwImgSize > 0)
+        {
+            m_lsStatusList.UpdateStatus(iLogginID, dwCarID, item_sideImg, sta_receiveDone);
+        }
+
+        if (pResult->CIMG_LastCapture.dwImgSize > 0)
+        {
+            m_lsStatusList.UpdateStatus(iLogginID, dwCarID, item_tailImg, sta_receiveDone);
+        }
+
+        if (pResult->CIMG_PlateImage.dwImgSize > 0)
+        {
+            m_lsStatusList.UpdateStatus(iLogginID, dwCarID, item_smallImg, sta_receiveDone);
+        }
+
+        if (pResult->CIMG_BinImage.dwImgSize > 0)
+        {
+            m_lsStatusList.UpdateStatus(iLogginID, dwCarID, item_binImg, sta_receiveDone);
+        }
+        if (strlen(pResult->chSaveFileName) > 0)
+        {
+            m_lsStatusList.UpdateStatus(iLogginID, dwCarID, item_video, sta_receiveDone);
         }
     }
+}
+
+bool Camera6467_VFR::GetIfSendResult()
+{
+    bool bValue = false;
+    EnterCriticalSection(&m_csFuncCallback);
+    bValue = m_bSentResult;
+    LeaveCriticalSection(&m_csFuncCallback);
+    return bValue;
+}
+
+void Camera6467_VFR::SetIfSendResult(bool bValue)
+{
+    EnterCriticalSection(&m_csFuncCallback);
+    m_bSentResult = bValue;
     LeaveCriticalSection(&m_csFuncCallback);
 }
 
-SendStatues Camera6467_VFR::getFrontSendSignal()
+bool Camera6467_VFR::GetFrontSendStatus(ResultSentStatus& status)
 {
-    SendStatues signal;
-    EnterCriticalSection(&m_csFuncCallback);
-    if (StatusList.size() > 0)
+    if (m_lsStatusList.size() > 0)
     {
-        signal = StatusList.front();
-    }    
-    LeaveCriticalSection(&m_csFuncCallback);
-    return signal;
+        return m_lsStatusList.getFirstElement(status);
+    }
+    return false;
 }
 
-void Camera6467_VFR::deleteFrontSendSignal()
+void Camera6467_VFR::UpdateSendStatus(int iLogginID, unsigned long dwCarID, int iItem, long value)
 {
-    EnterCriticalSection(&m_csFuncCallback);
-    StatusList.pop_front();
-    LeaveCriticalSection(&m_csFuncCallback);
-}
-
-int Camera6467_VFR::GetSignalListSize()
-{
-    int iSize = 0;
-    EnterCriticalSection(&m_csFuncCallback);
-    iSize = StatusList.size();
-    LeaveCriticalSection(&m_csFuncCallback);
-    return iSize;
+    m_lsStatusList.UpdateStatus(iLogginID, dwCarID, iItem, value);
 }
 
 int Camera6467_VFR::GetResultMode()

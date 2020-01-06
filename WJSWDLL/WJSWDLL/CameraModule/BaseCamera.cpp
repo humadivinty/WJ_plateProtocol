@@ -44,6 +44,7 @@ m_iIndex(0),
 m_iDeviceType(0),
 m_iCurrentH264FrameIndex(0),
 m_iVideoDelayTime(2),
+m_iVideoMode(0),
 m_iLogHoldDay(30),
 m_bLogEnable(true),
 m_bVideoLogEnable(true),
@@ -67,6 +68,7 @@ m_hSecondWinHandle(NULL)
 
     memset(m_chLogPath, '\0', sizeof(m_chLogPath));
     ReadConfig();
+    m_h264Saver.SetFileNameCallback(this, (void*)s_ReceiveFileString);
     m_h264Saver.SetLogEnable(m_bVideoLogEnable);
 }
 
@@ -84,6 +86,7 @@ m_iIndex(0),
 m_iDeviceType(0),
 m_iCurrentH264FrameIndex(0),
 m_iVideoDelayTime(2),
+m_iVideoMode(0),
 m_iLogHoldDay(30),
 m_bLogEnable(true),
 m_bVideoLogEnable(true),
@@ -107,6 +110,7 @@ m_hSecondWinHandle(NULL)
     memset(m_chLogPath, '\0', sizeof(m_chLogPath));
 
     ReadConfig();
+    m_h264Saver.SetFileNameCallback(this, (void*)s_ReceiveFileString);
     m_h264Saver.SetLogEnable(m_bVideoLogEnable);
 }
 
@@ -120,6 +124,7 @@ BaseCamera::~BaseCamera()
     InterruptionConnection();
     DisConnectCamera();
     //m_strIP.clear();
+    m_h264Saver.SetFileNameCallback(NULL, NULL);
 
     SAFE_DELETE_ARRAY(m_pTempBin);
     SAFE_DELETE_ARRAY(m_pTempBig1);
@@ -231,6 +236,28 @@ int BaseCamera::handleH264Frame(DWORD dwVedioFlag,
             WriteFormatLog(chLog);
         }
         return 0;
+}
+
+void BaseCamera::receiveFileName(const char* fileName)
+{
+    printf("receive video file %s\n", fileName);
+    EnterCriticalSection(&m_csFuncCallback);
+    if (m_lsFinishVideoName.size() > 10)
+    {
+        m_lsFinishVideoName.pop_front();
+    }
+    m_lsFinishVideoName.push_back(fileName);
+    LeaveCriticalSection(&m_csFuncCallback);
+}
+
+bool BaseCamera::FindIfFileNameInReciveList(const char* fileName)
+{
+    bool bRet = false;
+    EnterCriticalSection(&m_csFuncCallback);
+    if (std::end(m_lsFinishVideoName) != std::find(std::begin(m_lsFinishVideoName), std::end(m_lsFinishVideoName), fileName))
+        bRet = true;
+    LeaveCriticalSection(&m_csFuncCallback);
+    return bRet;
 }
 
 bool BaseCamera::SaveImgToDisk(char* chImgPath, BYTE* pImgData, DWORD dwImgSize)
@@ -656,21 +683,26 @@ void BaseCamera::ReadConfig()
     Tool_ReadIntValueFromConfigFile(INI_FILE_NAME, "Log", "videoLogEnable", iTemp);
     m_bVideoLogEnable = iTemp == 0 ? false: true;
     
-    //Tool_ReadKeyValueFromConfigFile(INI_FILE_NAME, "Result", "SavePath", chTemp, sizeof(chTemp));
-    //if (strlen(chTemp) < 1)
-    //{
-    //    SetImageDir(Tool_GetCurrentPath());
-    //    //sprintf_s(m_chImageDir, sizeof(m_chImageDir), "%s", Tool_GetCurrentPath());
-    //    //sprintf_s(m_chImageDir, sizeof(m_chImageDir), "%s", Tool_GetDllDirPath());
-    //    Tool_WriteKeyValueFromConfigFile(INI_FILE_NAME, "Result", "SavePath", (char*)Tool_GetCurrentPath(), sizeof(chTemp));
-    //}
+    memset(chTemp, '\0', sizeof(chTemp));
+    Tool_ReadKeyValueFromConfigFile(INI_FILE_NAME, "Result", "SavePath", chTemp, sizeof(chTemp));
+    if (strlen(chTemp) <= 1)
+    {
+        SetImageDir(Tool_GetCurrentPath());
+        //sprintf_s(m_chImageDir, sizeof(m_chImageDir), "%s", Tool_GetCurrentPath());
+        //sprintf_s(m_chImageDir, sizeof(m_chImageDir), "%s", Tool_GetDllDirPath());
+        Tool_WriteKeyValueFromConfigFile(INI_FILE_NAME, "Result", "SavePath", (char*)Tool_GetCurrentPath(), sizeof(chTemp));
+    }
+    else
+    {
+        SetImageDir(chTemp);
+    }
 
-    //int iTemp = 5;
-    //Tool_ReadIntValueFromConfigFile(INI_FILE_NAME, "Video", "AdvanceTime", iTemp);
-    //m_iVideoAdvanceTime = iTemp;
-    //iTemp = 2;
-    //Tool_ReadIntValueFromConfigFile(INI_FILE_NAME, "Video", "DelayTime", iTemp);
-    //m_iVideoDelayTime = iTemp;
+    iTemp = 5;
+    Tool_ReadIntValueFromConfigFile(INI_FILE_NAME, "Video", "AdvanceTime", iTemp);
+    m_iVideoAdvanceTime = iTemp;
+    iTemp = 2;
+    Tool_ReadIntValueFromConfigFile(INI_FILE_NAME, "Video", "DelayTime", iTemp);
+    m_iVideoDelayTime = iTemp;
 }
 
 void BaseCamera::SetLogPath(const char* path)
@@ -2043,6 +2075,29 @@ int BaseCamera::getVideoDelayTime()
     return iValue;
 }
 
+bool BaseCamera::FindIfCarIDInTheList(unsigned long carID)
+{
+    bool bRet = false;
+    EnterCriticalSection(&m_csFuncCallback);
+    if (std::end(m_lsSentCarID) != std::find(std::begin(m_lsSentCarID), std::end(m_lsSentCarID), carID))
+    {
+        bRet =  true;
+    }
+    LeaveCriticalSection(&m_csFuncCallback);
+    return bRet;
+}
+
+void BaseCamera::InsertCarIDToTheList(unsigned long carID)
+{
+    EnterCriticalSection(&m_csFuncCallback);
+    if (m_lsSentCarID.size() > 5)
+    {
+        m_lsSentCarID.pop_front();
+    }
+    m_lsSentCarID.push_back(carID);
+    LeaveCriticalSection(&m_csFuncCallback);
+}
+
 unsigned int __stdcall Camera_StatusCheckThread(LPVOID lpParam)
 {
     if (!lpParam)
@@ -2064,15 +2119,26 @@ int BaseCamera::StartPlayVideo(int iChannelID, HANDLE& playHandle, const HWND wi
     WriteLog(szLog);
 
     char chCMD[256] = { 0 };
-    if (iChannelID == 0)
+    switch (iChannelID)
     {
-        sprintf_s(chCMD, sizeof(chCMD), "rtsp://%s:554/h264ESVideoTest", m_strIP.c_str());
-        //m_iVedioChannelID = 0;
-    }
-    else
-    {
+    case 0://第一路H264
+        sprintf_s(chCMD, sizeof(chCMD), "rtsp://%s:554/h264ESVideoTest", m_strIP.c_str()); 
+        break;
+    case 1://第二路H264
         sprintf_s(chCMD, sizeof(chCMD), "rtsp://%s:554/h264ESVideoTestSecond", m_strIP.c_str());
-        //m_iVedioChannelID = 1;
+        break;
+    case 2://小黄人车头
+        sprintf_s(chCMD, sizeof(chCMD), "rtsp://%s:569/h264ESVideoTest", m_strIP.c_str());
+        break;
+    case 3://小黄人车侧
+        sprintf_s(chCMD, sizeof(chCMD), "rtsp://%s:584/h264ESVideoTest", m_strIP.c_str());
+        break;
+    case 4://小黄人车尾
+        sprintf_s(chCMD, sizeof(chCMD), "rtsp://%s:599/h264ESVideoTest", m_strIP.c_str());
+        break;
+    default:
+        sprintf_s(chCMD, sizeof(chCMD), "rtsp://%s:554/h264ESVideoTest", m_strIP.c_str());
+        break;
     }
     WriteLog(chCMD);
     playHandle = H264_Play(winHandle, chCMD);
