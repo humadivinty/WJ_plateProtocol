@@ -8,6 +8,7 @@
 #include "utilityTool/ToolFunction.h"
 #include "CameraModule/DeviceListManager.h"
 #include "ResultSentStatusManager.h"
+#include "ToolImgeProcessFunc.h"
 #include <algorithm>
 
 Camera6467_plate* pCamera = NULL;
@@ -24,6 +25,8 @@ Camera6467_plate* pCamera = NULL;
 
 std::list<CameraInfo> g_CameraInfoList;
 int g_iCameraMode = CAMERA_TYPE_PLATE;
+std::shared_ptr<uint8_t> g_pImgData = nullptr;
+
 static int g_MsgPLATENO = ::RegisterWindowMessage("PLATENO");
 
 BaseCamera* GetCamerByModeAndLaneNo(int iMode, int LaneNo)
@@ -41,6 +44,36 @@ BaseCamera* GetCamerByModeAndLaneNo(int iMode, int LaneNo)
         break;
     }
     return pCamTemp;
+}
+
+uint8_t* GetImgBufferAddress()
+{
+    uint8_t* pData = NULL;
+    if (!g_pImgData)
+    {
+        g_pImgData = std::shared_ptr<uint8_t>(new uint8_t[MAX_IMG_SIZE], std::default_delete<uint8_t[]>());
+    }
+    if (g_pImgData)
+    {
+        pData = g_pImgData.get();
+        memset(pData, 0, MAX_IMG_SIZE);
+    }
+    return pData;
+}
+
+void PrintStatuse(ResultSentStatus sta)
+{
+    WRITE_LOG("status :     int DeviceID = %d,   dwCarID = %lu, iFrontImgSendStatus = %d , iSidImgSendStatus = %d , \
+                      iTailImgSendStatus = %d ,  iVideoSendStatus = %d , iSmallImgSendStatus = %d iBinaryImgSendStatus = %d , uTimeReceive = %lu ",
+                      sta.DeviceID,
+                      sta.dwCarID,
+                      sta.iFrontImgSendStatus,
+                      sta.iSidImgSendStatus,
+                      sta.iTailImgSendStatus,
+                      sta.iVideoSendStatus,
+                      sta.iSmallImgSendStatus,
+                      sta.iBinaryImgSendStatus,
+                      sta.uTimeReceive);
 }
 
 
@@ -81,8 +114,10 @@ WJSWDLL_API int DELSPEC WVS_Initialize()
             }
             pTemp->SetCameraIP(it->chIP);
             pTemp->SetLoginID(it->iDeviceID);
-            pTemp->ConnectToCamera();
             pTemp->SetDeviceType(it->iDeviceType);
+            pTemp->ConnectToCamera();
+            int iSaveFrameID = it->iSaveFrameChannelID;
+            pTemp->SetH264Callback(iSaveFrameID, 0, 0, 0xffff0700);
             pTemp->SetWindowsWndForResultComming(HWND_BROADCAST, g_MsgPLATENO);
 
             DeviceListManager::GetInstance()->AddOneDevice(it->iDeviceID, pTemp);
@@ -139,7 +174,7 @@ WJSWDLL_API int DELSPEC WVS_GetBigImage(unsigned char LaneNo, int IdentNo, char*
     {
         std::shared_ptr<CameraResult> pResult;
         ResultSentStatus SentStatus;
-        int iItem = item_receiveTime;
+        int iItem = LaneNo;
         long iValue = 0;
         switch (pCamTemp->GetDeviceType())
         {
@@ -149,6 +184,7 @@ WJSWDLL_API int DELSPEC WVS_GetBigImage(unsigned char LaneNo, int IdentNo, char*
         case CAMERA_TYPE_VFR:
             if (((Camera6467_VFR*)pCamTemp)->GetFrontSendStatus(SentStatus))
             {
+                PrintStatuse(SentStatus);
                 pResult = ((Camera6467_VFR*)pCamTemp)->GetResultByCarID(SentStatus.dwCarID);
             }
             break;
@@ -216,27 +252,104 @@ WJSWDLL_API int DELSPEC WVS_GetBigImage(unsigned char LaneNo, int IdentNo, char*
                 break;
             }           
 
-            WRITE_LOG("get result success is , carID = %lu, plate number = %s, big image data = %p,image length = %lu ",
+            if ( (pImagData == NULL  || dwIageDataLength == 0)
+                && CAMERA_TYPE_VFR ==pCamTemp->GetDeviceType()
+                )
+            {
+                WRITE_LOG("item is invalid , use lane number to get result type.");
+                switch (LaneNo)
+                {
+                case item_frontImg:
+                    pImagData = pResult->CIMG_BeginCapture.pbImgData;
+                    dwIageDataLength = pResult->CIMG_BeginCapture.dwImgSize;
+
+                    iItem = item_frontImg;
+                    iValue = sta_sentFinish;
+                    break;
+                case item_sideImg:
+                    pImagData = pResult->CIMG_BestCapture.pbImgData;
+                    dwIageDataLength = pResult->CIMG_BestCapture.dwImgSize;
+
+                    iItem = item_sideImg;
+                    iValue = sta_sentFinish;
+                    break;
+
+                case item_tailImg:
+                    pImagData = pResult->CIMG_LastCapture.pbImgData;
+                    dwIageDataLength = pResult->CIMG_LastCapture.dwImgSize;
+
+                    iItem = item_tailImg;
+                    iValue = sta_sentFinish;
+                    break;
+                default:
+                    pImagData = pResult->CIMG_BeginCapture.pbImgData;
+                    dwIageDataLength = pResult->CIMG_BeginCapture.dwImgSize;
+
+                    iItem = item_frontImg;
+                    iValue = sta_sentFinish;
+                    break;
+                }
+            }
+
+            WRITE_LOG("get result success , carID = %lu, plate number = %s, big image data = %p,image length = %lu ",
                 dwCarID,
                 pChPlateNumber,
                 pImagData,
                 dwIageDataLength);
 
-            if (ImgBufLen >= dwIageDataLength
-                && 0 != dwIageDataLength)
+            if (ImgBufLen < dwIageDataLength)
             {
-                WRITE_LOG("begin to copy image data.");
-                memset(ImgBuf, 0 , ImgBufLen);
-                memcpy(ImgBuf, pImagData, dwIageDataLength);
-                *ImgSize = dwIageDataLength;
-                WRITE_LOG("finish copy image data.");
-                iRet = 0;
+                WRITE_LOG("ImgBufLen %d < dwIageDataLength %lu , compress image.", ImgBufLen, dwIageDataLength);
+                unsigned char* pBuf = GetImgBufferAddress();
+                size_t iBufLength = MAX_IMG_SIZE;
+                if (0 == Tool_CompressImg(pImagData, dwIageDataLength, pBuf, iBufLength, ImgBufLen - 1))
+                {
+                    WRITE_LOG("compress success, begin to copy image data., size = %d", iBufLength);
+                    memset(ImgBuf, 0, ImgBufLen);
+                    memcpy(ImgBuf, pBuf, iBufLength);
+                    *ImgSize = iBufLength;
+                    WRITE_LOG("finish copy image data.");
+                    iRet = 0;
+                }
+                else
+                {
+                    WRITE_LOG("compress image failed, do not copy data.");
+                }
             }
             else
             {
-                *ImgSize = 0;
-                WRITE_LOG("ImgBufLen %d is smaller than image data length %lu, do not copy data.", ImgBufLen, dwIageDataLength);
+                if (ImgBufLen >= dwIageDataLength
+                    && 0 != dwIageDataLength)
+                {
+                    WRITE_LOG("begin to copy image data.");
+                    memset(ImgBuf, 0, ImgBufLen);
+                    memcpy(ImgBuf, pImagData, dwIageDataLength);
+                    *ImgSize = dwIageDataLength;
+                    WRITE_LOG("finish copy image data.");
+                    iRet = 0;
+                }
+                else
+                {
+                    *ImgSize = 0;
+                    WRITE_LOG("ImgBufLen %d is smaller than image data length %lu, do not copy data.", ImgBufLen, dwIageDataLength);
+                }
             }
+
+            //if (ImgBufLen >= dwIageDataLength
+            //    && 0 != dwIageDataLength)
+            //{
+            //    WRITE_LOG("begin to copy image data.");
+            //    memset(ImgBuf, 0 , ImgBufLen);
+            //    memcpy(ImgBuf, pImagData, dwIageDataLength);
+            //    *ImgSize = dwIageDataLength;
+            //    WRITE_LOG("finish copy image data.");
+            //    iRet = 0;
+            //}
+            //else
+            //{
+            //    *ImgSize = 0;
+            //    WRITE_LOG("ImgBufLen %d is smaller than image data length %lu, do not copy data.", ImgBufLen, dwIageDataLength);
+            //}
 
             if (CAMERA_TYPE_VFR == pCamTemp->GetDeviceType())
             {
@@ -310,20 +423,58 @@ WJSWDLL_API int DELSPEC WVS_GetFarBigImage(unsigned char LaneNo, int IdentNo, ch
                 pImagData,
                 dwIageDataLength);
 
-            if (ImgBufLen >= dwIageDataLength
-                && 0 != dwIageDataLength)
+            if (ImgBufLen < dwIageDataLength)
             {
-                WRITE_LOG("begin to copy image data.");
-                memset(ImgBuf, 0, ImgBufLen);
-                memcpy(ImgBuf, pImagData, dwIageDataLength);
-                *ImgSize = dwIageDataLength;
-                WRITE_LOG("finish copy image data.");
+                WRITE_LOG("ImgBufLen %d < dwIageDataLength %lu , compress image.", ImgBufLen, dwIageDataLength);
+                unsigned char* pBuf = GetImgBufferAddress();
+                size_t iBufLength = MAX_IMG_SIZE;
+                if (0 == Tool_CompressImg(pImagData, dwIageDataLength, pBuf, iBufLength, ImgBufLen - 1))
+                {
+                    WRITE_LOG("compress success, begin to copy image data., size = %d", iBufLength);
+                    memset(ImgBuf, 0, ImgBufLen);
+                    memcpy(ImgBuf, pBuf, iBufLength);
+                    *ImgSize = iBufLength;
+                    WRITE_LOG("finish copy image data.");
+                    iRet = 0;
+                }
+                else
+                {
+                    WRITE_LOG("compress image failed, do not copy data.");
+                }
             }
             else
             {
-                *ImgSize = 0;
-                WRITE_LOG("ImgBufLen %d is smaller than image data length %lu, do not copy data.", ImgBufLen, dwIageDataLength);
+                if (ImgBufLen >= dwIageDataLength
+                    && 0 != dwIageDataLength)
+                {
+                    WRITE_LOG("begin to copy image data.");
+                    memset(ImgBuf, 0, ImgBufLen);
+                    memcpy(ImgBuf, pImagData, dwIageDataLength);
+                    *ImgSize = dwIageDataLength;
+                    WRITE_LOG("finish copy image data.");
+                    iRet = 0;
+                }
+                else
+                {
+                    *ImgSize = 0;
+                    WRITE_LOG("ImgBufLen %d is smaller than image data length %lu, do not copy data.", ImgBufLen, dwIageDataLength);
+                }
             }
+
+            //if (ImgBufLen >= dwIageDataLength
+            //    && 0 != dwIageDataLength)
+            //{
+            //    WRITE_LOG("begin to copy image data.");
+            //    memset(ImgBuf, 0, ImgBufLen);
+            //    memcpy(ImgBuf, pImagData, dwIageDataLength);
+            //    *ImgSize = dwIageDataLength;
+            //    WRITE_LOG("finish copy image data.");
+            //}
+            //else
+            //{
+            //    *ImgSize = 0;
+            //    WRITE_LOG("ImgBufLen %d is smaller than image data length %lu, do not copy data.", ImgBufLen, dwIageDataLength);
+            //}
         }
         else
         {
@@ -529,7 +680,6 @@ WJSWDLL_API int DELSPEC WVS_StartRealPlay(int LaneNo, HWND FormHwnd)
             return (it.iDeviceID == LaneNo);
         });
         int iVideoChannelID = (camInfo == std::end(g_CameraInfoList) ) ? 0 : camInfo->iVideoChannelID;
-
         switch (pCamTemp->GetDeviceType())
         {
         case CAMERA_TYPE_PLATE:
@@ -599,8 +749,10 @@ WJSWDLL_API int DELSPEC WVS_Startrecord(int LaneNo, char *sFileName)
         switch (pCamTemp->GetDeviceType())
         {
         case CAMERA_TYPE_PLATE:
-        case CAMERA_TYPE_VFR:
             pCamTemp->StartToSaveAviFile(0, sFileName, pCamTemp->GetCurrentH264FrameTime());
+            break;
+        case CAMERA_TYPE_VFR:
+            pCamTemp->StartToSaveVideoUnlimited(0, sFileName, pCamTemp->GetCurrentH264FrameTime());
             break;
         //case CAMERA_TYPE_VFR:
         //    WRITE_LOG(" %d is CAMERA_TYPE_VFR,  unsupport save video with no finish time.", LaneNo);
@@ -628,8 +780,10 @@ WJSWDLL_API int DELSPEC WVS_Stoprecord(int LaneNo)
         switch (pCamTemp->GetDeviceType())
         {
         case CAMERA_TYPE_PLATE:
-        case CAMERA_TYPE_VFR:
             pCamTemp->StopSaveAviFile(0);
+            break;
+        case CAMERA_TYPE_VFR:
+            pCamTemp->StopSaveVideoUnlimited(0);
             break;
         //case CAMERA_TYPE_VFR:
         //    WRITE_LOG(" %d is CAMERA_TYPE_VFR,  unsupport stop video with no begin time.", LaneNo);

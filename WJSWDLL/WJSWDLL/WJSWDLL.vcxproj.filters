@@ -96,6 +96,9 @@
     <ClInclude Include="ResultSentStattusManager.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="ToolImgeProcessFunc.h">
+      <Filter>utilityTool</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -160,6 +163,9 @@
     </ClCompile>
     <ClCompile Include="ResultSentStatusManager.cpp">
       <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="ToolImgeProcessFunc.cpp">
+      <Filter>utilityTool</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

@@ -43,10 +43,10 @@ public:
 
     void SetFileNameCallback(void* pUserData, void* pCallbackFunc);
     void SendFileName(const char* fileName);
-private:
+
     void SetIfExit(bool bValue);
     bool GetIfExit();
-
+private:
     void SetSaveFlag(int iValue);
     int GetSaveFlag();
 

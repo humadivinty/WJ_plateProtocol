@@ -45,6 +45,7 @@ struct CameraInfo
     int iDeviceType;
     int iDeviceID;
     int iVideoChannelID;
+    int iSaveFrameChannelID;
     CameraInfo()
     {
         memset(chIP, 0, sizeof(chIP));
@@ -57,6 +58,7 @@ struct CameraInfo
         iDirection = 0;
         iDeviceID = 0;
         iVideoChannelID = 0;
+        iSaveFrameChannelID = 0;
     }
 };
 
@@ -197,6 +199,11 @@ public:
 
     bool StartToSaveAviFile(int iStreamID, const char* fileName, DWORD64 beginTimeTick = 0);
     bool StopSaveAviFile(int iStreamID, INT64 TimeFlag = 0);
+
+    bool StartToSaveVideoUnlimited(int iStreamID, const char* fileName, DWORD64 beginTimeTick = 0);
+    bool StopSaveVideoUnlimited(int iStreamID, INT64 TimeFlag = 0);
+
+
     DWORD64 GetCurrentH264FrameTime();
     void SetCurrentH264FrameTime(DWORD64  frameTime);
 
@@ -270,6 +277,7 @@ protected:
     char m_chAviFilePath[256];
     char m_chImageDir[256];
     char m_chLogPath[256];
+    char m_chLogBuf[10240];
 
     PBYTE m_pTempBin;
     PBYTE m_pTempBig1;
@@ -286,6 +294,7 @@ protected:
 
     CRITICAL_SECTION m_csLog;    
     MyH264Saver m_h264Saver;
+    MyH264Saver m_h264Saver_ex;
 
     HANDLE m_hPlayFirstH264;
     HANDLE m_hPlaySecondh264;

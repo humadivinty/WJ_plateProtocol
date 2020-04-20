@@ -44,6 +44,7 @@ public:
     unsigned char* m_pImgBuffer;    
     char m_chCurrentDir[256];
     int m_iCameraMode; 
+    bool m_bAutoInvok;
 
     afx_msg void OnBnClickedButtonWvsGetfarbigimage();
     afx_msg void OnBnClickedButtonWvsGetsmallimage();
@@ -57,4 +58,6 @@ public:
 
     bool Tool_SaveFile(const char* fileName, void* pbData, size_t dataSize);
     afx_msg void OnBnClickedButtonWvsGetrecord();
+    afx_msg void OnBnClickedRadioOpen();
+    afx_msg void OnBnClickedRadioClose();
 };

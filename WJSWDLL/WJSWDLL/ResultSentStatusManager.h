@@ -10,7 +10,7 @@ enum imgItem{ item_deiviceID, item_frontImg, item_sideImg, item_tailImg, item_vi
 typedef struct  _ResultSentStatus
 {
     int DeviceID;
-    unsigned int dwCarID;
+    unsigned long dwCarID;
     int iFrontImgSendStatus;
     int iSidImgSendStatus;
     int iTailImgSendStatus;

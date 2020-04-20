@@ -125,6 +125,7 @@ BaseCamera::~BaseCamera()
     DisConnectCamera();
     //m_strIP.clear();
     m_h264Saver.SetFileNameCallback(NULL, NULL);
+    m_h264Saver_ex.SetFileNameCallback(NULL, NULL);
 
     SAFE_DELETE_ARRAY(m_pTempBin);
     SAFE_DELETE_ARRAY(m_pTempBig1);
@@ -235,6 +236,21 @@ int BaseCamera::handleH264Frame(DWORD dwVedioFlag,
             sprintf_s(chLog, sizeof(chLog), "handleH264Frame:: addDataStruct failed. \n");
             WriteFormatLog(chLog);
         }
+
+        if (1 == GetDeviceType())
+        {
+            CustH264Struct* pH264DataUnlimited = new CustH264Struct(pbVideoData, dwVideoDataLen, dwWidth, dwHeight, isIFrame, isHistory, dw64TimeMS/* GetTickCount64()*/, m_iCurrentH264FrameIndex);
+            //pH264Data->index = m_video;
+            if (!m_h264Saver_ex.addDataStruct(pH264DataUnlimited))
+            {
+                SAFE_DELETE_OBJ(pH264DataUnlimited);
+                memset(chLog, '\0', sizeof(chLog));
+                sprintf_s(chLog, sizeof(chLog), "handleH264Frame:: pH264DataUnlimited  failed. \n");
+                WriteFormatLog(chLog);
+            }
+        }
+
+
         return 0;
 }
 
@@ -642,19 +658,19 @@ int BaseCamera::ConnectToCamera()
         WriteLog("ConnectToCamera:: SetCallBack success.");
     }
 
-    for (int i = 0; i < 3; i++)
-    {
-        Sleep(100);
-        if (!SetH264Callback(1, 0, 0, H264_RECV_FLAG_REALTIME))
-        {
-            WriteLog("ConnectToCamera:: SetH264Callback failed.");
-        }
-        else
-        {
-            WriteLog("ConnectToCamera:: SetH264Callback success.");
-            break;
-        }
-    }
+    //for (int i = 0; i < 3; i++)
+    //{
+    //    Sleep(100);
+    //    if (!SetH264Callback(1, 0, 0, H264_RECV_FLAG_REALTIME))
+    //    {
+    //        WriteLog("ConnectToCamera:: SetH264Callback failed.");
+    //    }
+    //    else
+    //    {
+    //        WriteLog("ConnectToCamera:: SetH264Callback success.");
+    //        break;
+    //    }
+    //}
     iRet = 0;
     return iRet;
 }
@@ -749,16 +765,15 @@ int BaseCamera::GetLogHoldDays()
 
 void BaseCamera::WriteFormatLog(const char* szfmt, ...)
 {
-    static char g_szPbString[10240] = { 0 };
-    memset(g_szPbString, 0, sizeof(g_szPbString));
+    //char g_szPbString[10240] = { 0 };
+    memset(m_chLogBuf, 0, sizeof(m_chLogBuf));
 
     va_list arg_ptr;
     va_start(arg_ptr, szfmt);
-    vsnprintf_s(g_szPbString, sizeof(g_szPbString), szfmt, arg_ptr);
-
-    WriteLog(g_szPbString);
-
+    vsnprintf_s(m_chLogBuf, sizeof(m_chLogBuf), szfmt, arg_ptr);
     va_end(arg_ptr);
+
+    WriteLog(m_chLogBuf);
 }
 
 bool BaseCamera::WriteLog(const char* chlog)
@@ -1947,6 +1962,32 @@ bool BaseCamera::StopSaveAviFile(int iStreamID, INT64 TimeFlag)
     return m_h264Saver.StopSaveH264(TimeFlag);
 }
 
+bool BaseCamera::StartToSaveVideoUnlimited(int iStreamID, const char* fileName, DWORD64 beginTimeTick /*= 0*/)
+{
+    if (m_hHvHandle == NULL)
+    {
+        WriteFormatLog("StartToSaveVideoUnlimited, m_hHvHandle == NULL, failed.");
+        return false;
+    }
+
+    //DWORD64 timetick = m_curH264Ms - beginTimeTick;
+    //if (timetick < 0)
+    //    timetick = 0;
+    DWORD64 timetick = beginTimeTick;
+
+    return m_h264Saver_ex.StartSaveH264(timetick, fileName);
+}
+
+bool BaseCamera::StopSaveVideoUnlimited(int iStreamID, INT64 TimeFlag /*= 0*/)
+{
+    if (m_hHvHandle == NULL)
+    {
+        WriteFormatLog("StopSaveVideoUnlimited, m_hHvHandle == NULL, failed.");
+        return false;
+    }
+    return m_h264Saver_ex.StopSaveH264(TimeFlag);
+}
+
 DWORD64 BaseCamera::GetCurrentH264FrameTime()
 {
     DWORD64 dw64FrameTime = 0;
@@ -2178,7 +2219,7 @@ int BaseCamera::StopPlayVideoByChannel(int iChannelID)
         WriteLog("StopPlayVideoByChannel 0, begin.");
         StopPlayVideo(m_hPlayFirstH264);
     }
-    else if (iChannelID == 1)
+    else/* if (iChannelID == 1)*/
     {
         WriteLog("StopPlayVideoByChannel 1, begin.");
         StopPlayVideo(m_hPlaySecondh264);

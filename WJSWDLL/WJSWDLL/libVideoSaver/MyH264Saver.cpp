@@ -964,11 +964,14 @@ void MyH264Saver::WriteFormatLog(const char *szfmt, ...)
 
 void MyH264Saver::InitLogerConfig()
 {
-    ILog4zManager::getRef().setLoggerPath(LOG4Z_MAIN_LOGGER_ID, "./XLWLog/");
-    ILog4zManager::getRef().setLoggerMonthdir(LOG4Z_MAIN_LOGGER_ID, true);
+    //ILog4zManager::getRef().setLoggerPath(LOG4Z_MAIN_LOGGER_ID, "./XLWLog/");
+    //ILog4zManager::getRef().setLoggerMonthdir(LOG4Z_MAIN_LOGGER_ID, true);
+
+    srand((int)GetTickCount());
+    unsigned int iLogID = rand();
 
     char chLogerName[256] = {0};
-    sprintf(chLogerName, "videoFrame_%lu", GetCurrentThreadId());
+    sprintf(chLogerName, "videoFrame_%lu", iLogID);
 
     m_iFrameLogID = ILog4zManager::getRef().createLogger(chLogerName);
     ILog4zManager::getRef().setLoggerDisplay(m_iFrameLogID, false);
@@ -979,7 +982,7 @@ void MyH264Saver::InitLogerConfig()
     ILog4zManager::getRef().setLoggerOutFile(m_iFrameLogID, true);
 
     memset(chLogerName, '\0', sizeof(chLogerName));
-    sprintf(chLogerName, "videoSave_%lu", GetCurrentThreadId());
+    sprintf(chLogerName, "videoSave_%lu", iLogID);
     m_iVideoLogID = ILog4zManager::getRef().createLogger(chLogerName);
     ILog4zManager::getRef().setLoggerDisplay(m_iVideoLogID, false);
     ILog4zManager::getRef().setLoggerLevel(m_iVideoLogID, LOG_LEVEL_DEBUG);
@@ -988,5 +991,5 @@ void MyH264Saver::InitLogerConfig()
     ILog4zManager::getRef().setLoggerName(m_iVideoLogID, chLogerName);
     ILog4zManager::getRef().setLoggerOutFile(m_iVideoLogID, true);
 
-    ILog4zManager::getRef().start();
+    //ILog4zManager::getRef().start();
 }

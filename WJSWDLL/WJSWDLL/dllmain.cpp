@@ -2,6 +2,7 @@
 #include "stdafx.h"
 #include "coredump/MiniDumper.h"
 #include "utilityTool/ToolFunction.h"
+#include "utilityTool/log4z.h"
 CMiniDumper g_coredump(true);
 
 BOOL APIENTRY DllMain( HMODULE hModule,
@@ -16,6 +17,10 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         GetModuleFileName(hModule, szFileName, MAX_PATH);	//取得包括程序名的全路径
         PathRemoveFileSpec(szFileName);				//去掉程序名
         Tool_SetDllDirPath(szFileName);
+
+        zsummer::log4z::ILog4zManager::getRef().setLoggerPath(LOG4Z_MAIN_LOGGER_ID, "./XLWLog/");
+        zsummer::log4z::ILog4zManager::getRef().setLoggerMonthdir(LOG4Z_MAIN_LOGGER_ID, true);
+        zsummer::log4z::ILog4zManager::getRef().start();
         break;
 	case DLL_THREAD_ATTACH:
 	case DLL_THREAD_DETACH:

@@ -2296,6 +2296,8 @@ void Tool_LoadCamerInfoFromINI(const char* IniFileName, std::list<CameraInfo>& i
 
         Tool_ReadIntValueFromConfigFile(IniFileName, chNodeName, "VideoChannelID", info.iVideoChannelID);
 
+        Tool_ReadIntValueFromConfigFile(IniFileName, chNodeName, "SaveFrameChannelID", info.iSaveFrameChannelID);
+
         Tool_ReadIntValueFromConfigFile(IniFileName, chNodeName, "Type", info.iDeviceType);
 
         Tool_ReadKeyValueFromConfigFile(IniFileName, chNodeName, "IP", chNodeValue, sizeof(chNodeValue));

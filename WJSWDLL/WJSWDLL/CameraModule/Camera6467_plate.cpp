@@ -82,7 +82,7 @@ m_hStatusCheckThread(NULL),
     memset(m_chResultPath, '\0', sizeof(m_chResultPath));
     ReadConfig();
 
-    m_h264Saver.initMode(1);
+    m_h264Saver.initMode(0);
 
     m_hStatusCheckThread = (HANDLE)_beginthreadex(NULL, 0, Camera_StatusCheckThread, this, 0, NULL);
 }

@@ -101,6 +101,8 @@ BEGIN_MESSAGE_MAP(CTestTool_WJSWDLLDlg, CDialogEx)
     ON_BN_CLICKED(IDC_BUTTON_WVS_Stoprecord, &CTestTool_WJSWDLLDlg::OnBnClickedButtonWvsStoprecord)
     ON_BN_CLICKED(IDC_BUTTON_WVS_GetHvIsConnected, &CTestTool_WJSWDLLDlg::OnBnClickedButtonWvsGethvisconnected)
     ON_BN_CLICKED(IDC_BUTTON_WVS_Getrecord, &CTestTool_WJSWDLLDlg::OnBnClickedButtonWvsGetrecord)
+    ON_BN_CLICKED(IDC_RADIO_Open, &CTestTool_WJSWDLLDlg::OnBnClickedRadioOpen)
+    ON_BN_CLICKED(IDC_RADIO_Close, &CTestTool_WJSWDLLDlg::OnBnClickedRadioClose)
 END_MESSAGE_MAP()
 
 
@@ -147,6 +149,10 @@ BOOL CTestTool_WJSWDLLDlg::OnInitDialog()
     Tool_ReadIntValueFromConfigFile(INI_FILE_NAME, "CameraMode", "type", m_iCameraMode);
     str.Format("read from %s, camera mode = %d ( %s )", INI_FILE_NAME,  m_iCameraMode, m_iCameraMode == 0 ? "CAMERA_TYPE_PLATE" : "CAMERA_TYPE_VFR");
     ShowMessage(str);
+
+    OnBnClickedRadioClose();
+    CButton* pButton = (CButton*)GetDlgItem(IDC_RADIO_Close);
+    pButton->SetCheck(true);
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -208,6 +214,11 @@ LRESULT CTestTool_WJSWDLLDlg::OnUpdatePlateData(WPARAM wParam, LPARAM lParam)
     CString strLog;
     strLog.Format("receive msg from MsgType = %d", iLaneID);
     ShowMessage(strLog);
+
+    if (!m_bAutoInvok)
+    {
+        return 0;
+    }
 
     switch (m_iCameraMode)
     {
@@ -338,7 +349,7 @@ void CTestTool_WJSWDLLDlg::OnBnClickedButtonWvsGetbigimage()
     int iLaneID = atoi(chValue);
 
     int iIdentNo = 0;
-    int iImageBufSize = MAX_IMG_BUF_SIZE;
+    int iImageBufSize = 300*1024;
     
     if (m_pImgBuffer == NULL)
     {
@@ -628,4 +639,18 @@ void CTestTool_WJSWDLLDlg::OnBnClickedButtonWvsGetrecord()
     char chLog[256] = { 0 };
     sprintf_s(chLog, sizeof(chLog), "WVS_Getrecord(%d) = %d, ", iLaneID, iRet);
     ShowMessage(chLog);
+}
+
+
+void CTestTool_WJSWDLLDlg::OnBnClickedRadioOpen()
+{
+    // TODO:  在此添加控件通知处理程序代码
+    m_bAutoInvok = true;
+}
+
+
+void CTestTool_WJSWDLLDlg::OnBnClickedRadioClose()
+{
+    // TODO:  在此添加控件通知处理程序代码
+    m_bAutoInvok = false;
 }
